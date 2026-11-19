@@ -1,0 +1,82 @@
+plugins {
+    id 'com.android.application'
+}
+
+// Version is defined once here; CI and release workflows read it via `gradle -q printVersion`.
+def appVersionName = '0.1.0-dev.1'
+def appVersionCode = 1
+
+android {
+    namespace 'io.github.saefalasalynbtel198.shcport'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId 'io.github.saefalasalynbtel198.shcport'
+        // Android 8.0: lowest version Box64/Wine-on-Android stacks are known to run on.
+        minSdk 26
+        targetSdk 35
+        versionCode appVersionCode
+        versionName appVersionName
+        // No native code in BUILD 1. When the runtime lands, it is arm64-v8a only (see ARCHITECTURE.md).
+    }
+
+    signingConfigs {
+        release {
+            // Populated only in the release workflow from GitHub Actions secrets.
+            def ks = System.getenv('SHC_KEYSTORE_FILE')
+            if (ks) {
+                storeFile file(ks)
+                storePassword System.getenv('SHC_KEYSTORE_PASSWORD')
+                keyAlias System.getenv('SHC_KEY_ALIAS')
+                keyPassword System.getenv('SHC_KEY_PASSWORD')
+            }
+        }
+    }
+
+    buildTypes {
+        debug {
+            versionNameSuffix '-debug'
+        }
+        release {
+            minifyEnabled false
+            if (System.getenv('SHC_KEYSTORE_FILE')) {
+                signingConfig signingConfigs.release
+            }
+        }
+    }
+
+    buildFeatures {
+        buildConfig true
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    lint {
+        abortOnError true
+        checkReleaseBuilds true
+        // The launcher intentionally uses only platform APIs (no AndroidX), see ARCHITECTURE.md.
+        disable.addAll(['GradleDependency', 'OldTargetApi', 'AndroidGradlePluginVersion'])
+    }
+
+    testOptions {
+        unitTests.all {
+            testLogging {
+                events 'passed', 'failed', 'skipped'
+                exceptionFormat 'full'
+            }
+        }
+    }
+}
+
+dependencies {
+    testImplementation 'junit:junit:4.13.2'
+}
+
+tasks.register('printVersion') {
+    doLast {
+        println "${appVersionName}|${appVersionCode}"
+    }
+}

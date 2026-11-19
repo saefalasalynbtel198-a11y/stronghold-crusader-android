@@ -1,0 +1,52 @@
+name: Runtime components (experimental)
+
+# Builds and fetches the third-party pieces of the planned Wine + Box64 runtime.
+# These outputs are NOT yet packaged into the APK (see docs/ARCHITECTURE.md, BUILD 2/3).
+# Kept separate from android-build.yml so its experimental status is visible on its own
+# and never hides or weakens the APK build result.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "runtime/**"
+      - ".github/workflows/runtime-components.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  box64:
+    name: Box64 (aarch64 glibc, dynarec)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install cross toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu cmake ninja-build file python3
+      - name: Build Box64
+        run: bash runtime/scripts/build-box64.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: runtime-box64-aarch64
+          path: |
+            runtime/out/bin/box64
+            runtime/out/box64.file.txt
+          if-no-files-found: error
+
+  inputs:
+    name: Wine WoW64 + cnc-ddraw (pinned downloads)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch and verify
+        run: bash runtime/scripts/fetch-components.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: runtime-inputs
+          path: runtime/out/
+          if-no-files-found: error
+          retention-days: 7

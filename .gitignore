@@ -33,3 +33,31 @@ google-services.json
 
 # Android Profiling
 *.hprof
+
+# --- Stronghold Crusader Android port ---
+# Build output
+app/build/
+*.idx
+
+# IDE
+.DS_Store
+
+# Signing material must never be committed
+keystore.properties
+
+# Proprietary game files must never be committed (see docs/ASSET_IMPORT_GUIDE.md)
+game/
+game-files/
+*.exe
+*.dll
+*.gm1
+*.tgx
+*.bik
+*.map
+*.aiv
+*.sav
+*.rar
+*.7z
+
+# Runtime build outputs (produced by CI)
+runtime/out/

@@ -1,0 +1,110 @@
+name: Release
+
+# Creates a GitHub Release with a verified APK.
+# - Tag push "v*" or manual run with a tag name.
+# - If the signing secrets exist, a signed release APK is published.
+# - Otherwise the debug APK is published and the release is marked as a pre-release.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to create/publish, e.g. v0.1.0-dev.1"
+        required: true
+
+permissions:
+  contents: write
+
+env:
+  GRADLE_VERSION: "8.11.1"
+  BUILD_TOOLS: "35.0.0"
+  PLATFORM: "android-35"
+  EXPECTED_ABIS: ""
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      HAS_KEYSTORE: ${{ secrets.SHC_KEYSTORE_BASE64 != '' }}
+      TAG: ${{ github.event.inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Repository hygiene
+        run: bash scripts/ci/check-no-proprietary-files.sh
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install SDK components (preinstalled Android SDK on the runner)
+        run: |
+          SDKM="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          test -x "$SDKM" || { echo "::error::sdkmanager not found under ANDROID_HOME=$ANDROID_HOME"; exit 1; }
+          yes | "$SDKM" --licenses > /dev/null || true
+          "$SDKM" --install "platforms;${PLATFORM}" "build-tools;${BUILD_TOOLS}" "platform-tools" > sdk-install.log
+          test -x "$ANDROID_HOME/build-tools/${BUILD_TOOLS}/aapt2" || { cat sdk-install.log; echo "::error::build-tools ${BUILD_TOOLS} missing"; exit 1; }
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: ${{ env.GRADLE_VERSION }}
+
+      - name: Check tag matches app version
+        run: |
+          line=$(gradle -q :app:printVersion | tail -n1)
+          name="${line%%|*}"
+          if [ "v${name}" != "${TAG}" ]; then
+            echo "::error::Tag ${TAG} does not match app versionName v${name} (app/build.gradle)."
+            exit 1
+          fi
+
+      - name: Unit tests
+        run: gradle --no-daemon --stacktrace :app:testDebugUnitTest
+
+      - name: Decode signing key
+        if: env.HAS_KEYSTORE == 'true'
+        env:
+          SHC_KEYSTORE_BASE64: ${{ secrets.SHC_KEYSTORE_BASE64 }}
+        run: |
+          echo "$SHC_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
+          echo "SHC_KEYSTORE_FILE=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
+
+      - name: Build signed release APK
+        if: env.HAS_KEYSTORE == 'true'
+        env:
+          SHC_KEYSTORE_PASSWORD: ${{ secrets.SHC_KEYSTORE_PASSWORD }}
+          SHC_KEY_ALIAS: ${{ secrets.SHC_KEY_ALIAS }}
+          SHC_KEY_PASSWORD: ${{ secrets.SHC_KEY_PASSWORD }}
+        run: |
+          gradle --no-daemon --stacktrace :app:assembleRelease
+          cp app/build/outputs/apk/release/app-release.apk "stronghold-crusader-android-${TAG}.apk"
+
+      - name: Build debug APK (no signing secrets configured)
+        if: env.HAS_KEYSTORE != 'true'
+        run: |
+          echo "::warning::Signing secrets not configured; publishing a debug-signed APK as a pre-release."
+          gradle --no-daemon --stacktrace :app:assembleDebug
+          cp app/build/outputs/apk/debug/app-debug.apk "stronghold-crusader-android-${TAG}-debug.apk"
+
+      - name: Verify APK
+        run: |
+          apk=$(ls stronghold-crusader-android-*.apk)
+          bash scripts/ci/verify-apk.sh "$apk" "${TAG#v}"
+          sha256sum "$apk" > "$apk.sha256"
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          apk=$(ls stronghold-crusader-android-*.apk)
+          flags=(--title "${TAG}" --notes-file docs/RELEASE_NOTES.md)
+          case "$TAG" in *-dev*|*-alpha*|*-beta*|*-rc*) flags+=(--prerelease) ;; esac
+          [ "$HAS_KEYSTORE" = "true" ] || flags+=(--prerelease)
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            gh release upload "$TAG" "$apk" "$apk.sha256" --clobber
+          else
+            gh release create "$TAG" "$apk" "$apk.sha256" --target "$GITHUB_SHA" "${flags[@]}"
+          fi
