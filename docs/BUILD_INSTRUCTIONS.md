@@ -29,6 +29,15 @@ BUILD_TOOLS=35.0.0 bash scripts/ci/verify-apk.sh app/build/outputs/apk/debug/app
 Download the APK: repository → **Actions** → latest green *Android build* run → **Artifacts** →
 *Stronghold-Crusader-Android-APK* (zip containing `app-debug.apk`).
 
+## Runtime package (BUILD 2)
+
+1. Actions → **Runtime components (experimental)** → *Run workflow* (or push a change under `runtime/`).
+2. When green, download the artifact **shc-runtime-package** and extract it once; you get
+   `shc-runtime-<version>.zip` and its `.sha256`.
+3. Copy `shc-runtime-<version>.zip` to the device (do not extract it there).
+4. In the app: **Runtime: install / self-test** → **Install runtime package…** → pick the zip → **Run self-test**.
+5. Copy the report (button) and add it to an issue or send it to the developer.
+
 ## Install on a device
 
 1. Enable installing unknown apps for your browser/file manager.

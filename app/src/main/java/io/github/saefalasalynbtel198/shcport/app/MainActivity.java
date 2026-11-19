@@ -66,6 +66,7 @@ public final class MainActivity extends Activity implements GameImporter.Listene
         col.addView(Ui.heading(this, "2. Runtime"));
         runtimeStatus = Ui.body(this, "");
         col.addView(runtimeStatus);
+        col.addView(Ui.button(this, "Runtime: install / self-test", v -> startActivity(new Intent(this, RuntimeActivity.class))));
 
         col.addView(Ui.heading(this, "3. Play"));
         playButton = Ui.button(this, "Start game", v -> Toast.makeText(this,
@@ -155,9 +156,10 @@ public final class MainActivity extends Activity implements GameImporter.Listene
         String reason;
         if (!inst.present) reason = "Import your game folder first.";
         else if (candidate == null) reason = "No supported game executable was found in the imported folder (see details above).";
-        else if (!rs.isInstalled()) reason = "Game files are ready (" + candidate.name + "), but the runtime is not part of this development build.";
+        else if (!rs.isInstalled()) reason = "Game files are ready (" + candidate.name + "). Install the runtime package next (Runtime screen).";
+        else if (!rs.canLaunchGame()) reason = "Game files and runtime are installed. Launching the game needs the display server (BUILD 3); run the runtime self-test meanwhile.";
         else reason = "Ready.";
-        playButton.setEnabled(inst.present && candidate != null && rs.isInstalled());
+        playButton.setEnabled(inst.present && candidate != null && rs.canLaunchGame());
         playReason.setText(reason);
     }
 

@@ -3,9 +3,10 @@
 A dedicated Android launcher that will run the **original** Stronghold Crusader HD 1.41 on ARM64 phones and
 tablets through Wine (x86-64 WoW64) + Box64, with touch controls that map to the game's own mouse mechanics.
 
-> **Status: BUILD 1 (0.1.0-dev.1) — development build. The game cannot be played yet.**
-> The app installs, imports and validates your game files, manages saves and lets you test the touch controls.
-> The Windows runtime that actually starts the game is the next milestone. See [docs/EXECUTION_TRACKER.md](docs/EXECUTION_TRACKER.md).
+> **Status: BUILD 2 (0.2.0-dev.1) — development build. The game cannot be played yet.**
+> The app imports and validates your game files, manages saves, tests touch controls, installs the Wine + Box64
+> runtime package and self-tests it on the device. Rendering the game (display server) is BUILD 3.
+> See [docs/EXECUTION_TRACKER.md](docs/EXECUTION_TRACKER.md).
 
 Not affiliated with Firefly Studios. No game files are included — you need your own copy of
 **Stronghold Crusader HD** (GOG or Steam).
@@ -30,7 +31,8 @@ Not affiliated with Firefly Studios. No game files are included — you need you
 |---|---|
 | Package | `io.github.saefalasalynbtel198.shcport` |
 | Minimum Android | 8.0 (API 26) |
-| Target ABI | none in BUILD 1; arm64-v8a once the runtime is bundled |
+| Target / compile SDK | 28 / 35 (targetSdk 28 needed to execute the runtime; sideload only) |
+| Device requirement | ARM64 (arm64-v8a) for the runtime |
 | Permissions | none |
 | CI artifact | `Stronghold-Crusader-Android-APK` |
 

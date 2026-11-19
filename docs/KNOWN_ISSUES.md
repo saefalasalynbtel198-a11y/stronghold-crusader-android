@@ -2,8 +2,8 @@
 
 ## Blocking gameplay
 
-1. **The game cannot be started yet.** The Wine + Box64 runtime is not bundled (BUILD 2–3). The *Start game* button
-   is disabled and says why.
+1. **The game cannot be started yet.** The runtime can be installed and self-tested (BUILD 2), but there is no
+   display server yet (BUILD 3). The *Start game* button is disabled and says why.
 2. **No supported game copy is available to the project.** The supplied archive is a modified repack of the
    SecuROM disc release (see SOURCE_ARCHIVE_AUDIT.md §6). A DRM-free HD 1.41 copy is required for testing.
 
@@ -14,11 +14,22 @@
 * DirectPlay multiplayer, WinHelp `.hlp` files and the map editor are out of scope for now.
 * No hardware mouse/keyboard pass-through yet.
 
+## BUILD 2 risks (to be answered by the on-device self-test)
+
+* **glibc vs. Android seccomp.** Android applies a seccomp syscall filter to app processes. Unpatched Debian
+  glibc may use syscalls it does not allow (start-up of the loader would fail with SIGSYS). Fallback: an
+  Android-patched glibc (the Termux glibc-packages patches, which Winlator credits).
+* **Kernel page size.** Some newer devices use 16 KB pages; Box64 and Wine must cope (Box64 supports
+  non-4K page sizes on other platforms; untested here).
+* **Self-test proves execution only.** Passing all three steps does not mean the game renders; that needs the
+  display server (BUILD 3).
+* The runtime package must be downloaded from GitHub Actions and selected manually (artifact downloads are a
+  zip containing the package zip — extract once on the PC/phone first).
+
 ## Engineering debt
 
 * GitHub Actions are pinned to major tags (`@v4`, `@v3`, `@v2`), not commit SHAs — pin once SHAs can be verified.
 * No Gradle wrapper jar in the repository (CI installs Gradle 8.11.1 via `gradle/actions/setup-gradle`).
 * `CNC_DDRAW_SHA256` is empty until the first `runtime-components.yml` run records it.
 * cnc-ddraw defaults in `CncDdrawConfig` are untuned.
-* Whether the runtime can execute from app storage with targetSdk 35 must be decided in BUILD 3
-  (alternatives: ship binaries as `lib*.so` in `nativeLibraryDir`, or targetSdk 28 for sideload builds).
+* targetSdk is 28 from BUILD 2 (decision in ARCHITECTURE.md); the app cannot be published on Google Play.

@@ -1,7 +1,8 @@
 name: Runtime components (experimental)
 
 # Builds and fetches the third-party pieces of the planned Wine + Box64 runtime.
-# These outputs are NOT yet packaged into the APK (see docs/ARCHITECTURE.md, BUILD 2/3).
+# The final job assembles shc-runtime-*.zip, which the app installs via "Runtime → Install runtime package"
+# (BUILD 2). It is not embedded in the APK (size; see docs/ARCHITECTURE.md).
 # Kept separate from android-build.yml so its experimental status is visible on its own
 # and never hides or weakens the APK build result.
 on:
@@ -34,6 +35,7 @@ jobs:
           path: |
             runtime/out/bin/box64
             runtime/out/box64.file.txt
+            runtime/out/licenses/
           if-no-files-found: error
 
   inputs:
@@ -50,3 +52,49 @@ jobs:
           path: runtime/out/
           if-no-files-found: error
           retention-days: 7
+
+  package:
+    name: Assemble runtime package
+    needs: [box64, inputs]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download Box64
+        uses: actions/download-artifact@v4
+        with:
+          name: runtime-box64-aarch64
+          path: runtime/out
+      - name: Download Wine and cnc-ddraw
+        uses: actions/download-artifact@v4
+        with:
+          name: runtime-inputs
+          path: runtime/out
+      - name: Restore executable bit (artifacts do not keep permissions)
+        run: chmod 0755 runtime/out/bin/box64
+      - name: Install tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends mmdebstrap file unzip xz-utils python3
+      - name: Build ARM64 glibc userland
+        run: sudo bash runtime/scripts/build-userland.sh && sudo chown -R "$(id -u):$(id -g)" runtime/out
+      - name: Assemble package
+        run: bash runtime/scripts/assemble-runtime.sh
+      - name: Summary
+        run: |
+          {
+            echo "### Runtime package"
+            echo
+            echo '```'
+            ls -l runtime/out/shc-runtime-*.zip
+            cat runtime/out/shc-runtime-*.zip.sha256
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: shc-runtime-package
+          path: |
+            runtime/out/shc-runtime-*.zip
+            runtime/out/shc-runtime-*.zip.sha256
+          if-no-files-found: error
+          retention-days: 30

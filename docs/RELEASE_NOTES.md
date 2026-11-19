@@ -1,5 +1,13 @@
 # Release notes
 
+## 0.2.0-dev.1 — BUILD 2 (development build, not a playable game)
+
+* **Runtime screen:** install `shc-runtime-*.zip` (Box64 + Wine 11.0 WoW64 + cnc-ddraw + Debian ARM64
+  libraries, built by the *Runtime components* workflow) and run a three-step on-device self-test:
+  glibc loader → Box64 → Wine. The report is shown, saved to the app's logs and can be copied.
+* targetSdk lowered to 28 so the runtime may execute from app storage (sideload only; see ARCHITECTURE.md).
+* Game launch still unavailable (display server: BUILD 3).
+
 ## 0.1.0-dev.1 — BUILD 1 (development build, not a playable game)
 
 This build installs and runs on Android 8.0+ but **cannot start Stronghold Crusader yet**: the Wine + Box64

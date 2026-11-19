@@ -35,6 +35,12 @@
             android:screenOrientation="sensorLandscape" />
 
         <activity
+            android:name=".app.RuntimeActivity"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden"
+            android:exported="false"
+            android:screenOrientation="sensorLandscape" />
+
+        <activity
             android:name=".app.DiagnosticsActivity"
             android:exported="false"
             android:screenOrientation="sensorLandscape" />

@@ -22,6 +22,7 @@ cmake -S "$work/box64" -B "$work/box64-build" -G Ninja \
 cmake --build "$work/box64-build" --parallel
 cp "$work/box64-build/box64" "$out/bin/box64"
 aarch64-linux-gnu-strip --strip-debug "$out/bin/box64"
+mkdir -p "$out/licenses" && cp "$work/box64/LICENSE" "$out/licenses/box64-LICENSE"
 file "$out/bin/box64" | tee "$out/box64.file.txt"
 grep -q "ARM aarch64" "$out/box64.file.txt"
 echo "box64 $BOX64_REF built: $(stat -c %s "$out/bin/box64") bytes"
