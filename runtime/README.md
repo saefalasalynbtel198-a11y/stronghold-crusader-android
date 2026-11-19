@@ -7,7 +7,7 @@ The game is a 32-bit x86 Windows program. On an ARM64 Android device it needs:
 | x86-64 → ARM64 CPU translation | Box64 (`BOX64_REF` in `versions.env`) | MIT | Cross-compiled in CI (`runtime-components.yml`); not yet on-device tested |
 | Windows API, 32-bit via WoW64 | Wine x86-64 WoW64 build (Kron4ek) | LGPL-2.1+ | Download + checksum verified in CI |
 | DirectDraw → OpenGL | cnc-ddraw | MIT | Download in CI; checksum recorded on first run |
-| ARM64 glibc userland for Box64 and Wine's Unix side | Debian bookworm arm64 libraries via `mmdebstrap --variant=extract` | various FOSS (copyright files shipped) | Scripted (`build-userland.sh`); not yet run |
+| ARM64 glibc userland for Box64 and Wine's Unix side | Debian trixie arm64 libraries via `mmdebstrap --variant=extract` | various FOSS (copyright files shipped) | Scripted (`build-userland.sh`); not yet run |
 | Display server Wine can draw into | X11 server inside the app (approach used by Winlator) | — | **Not started** |
 | Audio output | Wine → PulseAudio/ALSA → Android AAudio | — | **Not started** |
 

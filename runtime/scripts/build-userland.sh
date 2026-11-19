@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Extracts a minimal Debian arm64 (glibc) userland: the glibc loader and the native libraries Box64
+# Extracts a minimal Debian arm64 (glibc) userland (suite from versions.env): the glibc loader and the native libraries Box64
 # and Wine's Unix side need. "extract" variant: packages are unpacked only (no maintainer scripts),
 # so no ARM emulation is needed on the x86-64 CI runner.
 # Output: runtime/out/userland/
@@ -17,8 +17,8 @@ packages=(
   libc6 libgcc-s1 libstdc++6 zlib1g
   libx11-6 libxext6 libxrender1 libxrandr2 libxi6 libxcursor1 libxfixes3 libxinerama1 libxcomposite1 libxxf86vm1
   libxcb1 libxau6 libxdmcp6 libbsd0 libmd0
-  libfreetype6 libpng16-16 libbrotli1 libfontconfig1 libexpat1 libuuid1
-  libasound2
+  libfreetype6 libpng16-16t64 libbrotli1 libfontconfig1 libexpat1 libuuid1
+  libasound2t64
 )
 include=$(IFS=,; echo "${packages[*]}")
 

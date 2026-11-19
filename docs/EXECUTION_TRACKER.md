@@ -46,7 +46,7 @@ Last updated: 2026-11-20 · Repository: saefalasalynbtel198-a11y/stronghold-crus
 | targetSdk 28 from BUILD 2 | Android blocks exec and dlopen from app storage for targetSdk ≥ 29; sideload only |
 | Runtime as separate zip package | Size, independent updates, licence separation |
 | Start everything via the packaged glibc loader | Android has no glibc loader at /lib |
-| Debian bookworm userland first; Termux-patched glibc as fallback | Unpatched glibc may trip Android seccomp; device self-test step 1 decides |
+| Debian trixie userland first; Termux-patched glibc as fallback | Unpatched glibc may trip Android seccomp; device self-test step 1 decides |
 | Runner's preinstalled Android SDK | setup-android@v3 licence handling broke the build |
 
 ## Next action
