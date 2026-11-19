@@ -9,7 +9,7 @@ No file from this archive is committed to the repository.
 |---|---|
 | Format | RAR 5, 3 volumes (350 MiB + 350 MiB + 1.5 MB) |
 | Content | 4,042 files, 14 folders, 1.25 GB unpacked, single top folder `Stronghold Crusader/` |
-| Extraction | Lossless with the official unrar library (`node-unrar-js`); `7z`/`unar` on Ubuntu 24.04 fail on this RAR5 variant |
+| Extraction | Lossless with the official unrar library (`node-unrar-js`); the Ubuntu 24.04 `7zip` package (no RAR codec) and `unar` 1.10 could not extract it |
 | Source code | **None.** Only compiled binaries and data files |
 
 Top level: two game executables, middleware DLLs, cursors, `readme.doc`, plus the folders
