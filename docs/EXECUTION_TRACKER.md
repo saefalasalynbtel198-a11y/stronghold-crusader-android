@@ -1,6 +1,6 @@
 # Execution tracker
 
-Last updated: 2026-11-20 · Repository: saefalasalynbtel198-a11y/stronghold-crusader-android (private, default branch `main`)
+Last updated: 2026-11-20 (BUILD 2 CI verified) · Repository: saefalasalynbtel198-a11y/stronghold-crusader-android (private, default branch `main`)
 
 ## Milestones
 
@@ -8,7 +8,7 @@ Last updated: 2026-11-20 · Repository: saefalasalynbtel198-a11y/stronghold-crus
 |---|---|---|---|
 | 1 | Repository and previous BUILD audit | COMPLETED | `main` held only the initial commit (README, .gitignore); BUILD 1/2 had never been pushed; no PRs, runs or releases. Branch `claude/access-check` (1 temporary file) left untouched. |
 | 2 | BUILD 1 — launcher, core, CI | COMPLETED (merge pending) | PR #1; run [44613894366](https://github.com/saefalasalynbtel198-a11y/stronghold-crusader-android/actions/runs/44613894366) green: 33 unit tests, lint, APK verified, emulator smoke test passed. Merge into `main` needs the owner (agent merge was refused by its permission policy). |
-| 3 | BUILD 2 — runtime package, installer, on-device self-test | IN PROGRESS | PR #2 (stacked on BUILD 1). CI results below once available. Real-device self-test needs an ARM64 phone. |
+| 3 | BUILD 2 — runtime package, installer, on-device self-test | IN PROGRESS (CI COMPLETED; device test BLOCKED) | PR #2. APK run [44626864244](https://github.com/saefalasalynbtel198-a11y/stronghold-crusader-android/actions/runs/44626864244) green; runtime run [44626864246](https://github.com/saefalasalynbtel198-a11y/stronghold-crusader-android/actions/runs/44626864246) green incl. hermetic qemu-aarch64 self-test (loader → Box64 → `wine-11.0`). Android device test needs an ARM64 phone. |
 | 4 | Complete Android application (AR/EN, themes, game launch screen) | NOT STARTED | |
 | 5 | Runtime integration: display server, Wine prefix, cnc-ddraw, audio | NOT STARTED | Needs BUILD 2 device result |
 | 6 | Touch controls injected into the game | NOT STARTED | Mapper done and unit-tested; injection needs milestone 5 |
@@ -31,6 +31,22 @@ Last updated: 2026-11-20 · Repository: saefalasalynbtel198-a11y/stronghold-crus
   SHA-256 `a298406270c46961cc511c9ea63057418bba5e4c667777f34583e7cb5ecc7a1b`.
 * Not verified: real-device install; SAF import with real files; game start (not possible in BUILD 1).
 
+## Milestone 3 — BUILD 2 details
+
+* Branch `feature/build2-runtime` (PR #2, base `feature/build1-launcher`), verified head `8db30a9`.
+* Failures found and fixed in CI, in order:
+  1. Wine fetch reported failure although the SHA-256 matched: `tar | grep -m1` + pipefail → list to file first (`bcdbe85`); same latent pattern removed from `verify-apk.sh`, `assemble-runtime.sh`.
+  2. Box64 cross-link: `cannot find Scrt1.o / crti.o` → add `libc6-dev-arm64-cross` (`bcdbe85`).
+  3. Debian userland: `NO_PUBKEY` → verify with `debian-archive-keyring` (`70cffb4`).
+  4. Loader not found: extract variant has no merged /usr → merge lib/ + usr/lib/, relativise symlinks (`8836679`).
+  5. qemu: Box64 `GLIBC_2.38/2.39 not found` against bookworm glibc 2.36 → Debian trixie, glibc 2.41 (`6e169d0`).
+  6. Box64 used the runner's x86-64 `libgcc_s.so.1` (not present on Android) → ship Box64 `x64lib`, hermetic test hiding host x86-64 libraries (`8db30a9`).
+  7. One emulator smoke-test run (44619862549) lost the app process after a successful cold start; not reproduced in 3 later runs. Smoke test now prints logcat on failure and polls `pidof` (`94e269e`). Cause unconfirmed.
+* APK (artifact `Stronghold-Crusader-Android-APK`, run 44626864244): `app-debug.apk`, 71,904 bytes, 0.2.0-dev.1-debug (2), minSdk 26 / targetSdk 28, no native code, debug-signed, SHA-256 `9aec50c1aca6e0df2447fc1a10f8b0fe1789becd6d6e561dec09d24ef6289d96`. Emulator: install Success, cold start 1880 ms, background/foreground OK.
+* Runtime package (artifact `shc-runtime-package`, run 44626864246): `shc-runtime-r1-box64-v0.3.8-wine-11.0-cncddraw-v7.0.0.0-trixie.zip`, 180,293,457 bytes, 4,338 files / 45 symlinks / 52 executables. Inputs: Box64 v0.3.8 (built in CI), Wine 11.0 WoW64 (SHA-256 pinned), cnc-ddraw v7.0.0.0 (SHA-256 pinned), Debian trixie arm64 libraries (apt signature-verified).
+* qemu-aarch64 self-test (Linux ARM64 emulation, host x86-64 libraries hidden; **not Android**): glibc 2.41 loader PASS; `Box64 arm64 v0.3.8 with Dynarec` PASS; Box64 → Wine `wine-11.0` PASS, all x86-64 libraries from the package.
+* Not verified: anything on Android ARM64 (seccomp, SELinux exec rules at targetSdk 28, page size), runtime install via the app UI with the real 180 MB package, game start.
+
 ## Remaining blockers (owner action)
 
 1. Merge PR #1 (then PR #2 retargets to `main` automatically when its base branch is merged and deleted, or retarget it manually).
@@ -51,5 +67,7 @@ Last updated: 2026-11-20 · Repository: saefalasalynbtel198-a11y/stronghold-crus
 
 ## Next action
 
-BUILD 2 CI on PR #2: Android build (0.2.0-dev.1 APK) and runtime-components (Box64 cross-build, Wine/cnc-ddraw
-checksums, Debian arm64 userland, package assembly, qemu-aarch64 self-test). Fix failures until green.
+1. Owner: merge PR #1, then PR #2; run the BUILD 2 self-test on an ARM64 phone (APK + `shc-runtime-package`) and paste the report.
+2. Agent (independent of the device): milestone 4 — Arabic/English resources, light/dark themes, launch screen.
+3. Agent, after the device report: milestone 5 — display server (X11) + Wine prefix init + first `notepad`/`winver`
+   window on device, then the game executable.
