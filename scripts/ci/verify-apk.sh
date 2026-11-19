@@ -24,7 +24,7 @@ badging=$("$BT/aapt2" dump badging "$APK")
 pkg=$(sed -n "s/^package: name='\([^']*\)'.*/\1/p" <<<"$badging")
 vname=$(sed -n "s/^package: .*versionName='\([^']*\)'.*/\1/p" <<<"$badging")
 vcode=$(sed -n "s/^package: .*versionCode='\([^']*\)'.*/\1/p" <<<"$badging")
-minsdk=$(sed -n "s/^minSdkVersion:'\([^']*\)'.*/\1/p" <<<"$badging")
+minsdk=$(sed -nE "s/^(minSdkVersion|sdkVersion):'([^']*)'.*/\2/p" <<<"$badging" | head -n1)
 target=$(sed -n "s/^targetSdkVersion:'\([^']*\)'.*/\1/p" <<<"$badging")
 launch=$(sed -n "s/^launchable-activity: name='\([^']*\)'.*/\1/p" <<<"$badging")
 

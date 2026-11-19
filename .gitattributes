@@ -1,0 +1,9 @@
+# Keep Unix line endings for files executed by bash or parsed by CI, also on Windows checkouts.
+*.sh    text eol=lf
+*.yml   text eol=lf
+*.env   text eol=lf
+*.gradle text eol=lf
+*.java  text eol=lf
+*.md    text eol=lf
+*.xml   text eol=lf
+*.properties text eol=lf
