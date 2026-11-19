@@ -17,8 +17,9 @@ fail() { echo "::error::$*"; exit 1; }
 size=$(stat -c %s "$APK")
 [ "$size" -gt 10240 ] || fail "APK is suspiciously small ($size bytes)"
 unzip -tq "$APK" >/dev/null || fail "APK is not a valid zip archive"
-unzip -Z1 "$APK" | grep -qx 'AndroidManifest.xml' || fail "APK has no AndroidManifest.xml"
-unzip -Z1 "$APK" | grep -q '^classes.*\.dex$' || fail "APK has no dex code"
+listing=$(unzip -Z1 "$APK")   # captured first: grep -q on a pipe can break the writer under pipefail
+grep -qx 'AndroidManifest.xml' <<<"$listing" || fail "APK has no AndroidManifest.xml"
+grep -q '^classes.*\.dex$' <<<"$listing" || fail "APK has no dex code"
 
 badging=$("$BT/aapt2" dump badging "$APK")
 pkg=$(sed -n "s/^package: name='\([^']*\)'.*/\1/p" <<<"$badging")
@@ -36,11 +37,11 @@ fi
 
 "$BT/apksigner" verify --print-certs "$APK" > apk-signature.txt || fail "APK signature verification failed"
 
-abis=$(unzip -Z1 "$APK" | sed -n 's#^lib/\([^/]*\)/.*#\1#p' | sort -u | tr '\n' ' ' | sed 's/ $//')
+abis=$(sed -n 's#^lib/\([^/]*\)/.*#\1#p' <<<"$listing" | sort -u | tr '\n' ' ' | sed 's/ $//')
 want=$(tr ' ' '\n' <<<"$EXPECTED_ABIS" | sed '/^$/d' | sort -u | tr '\n' ' ' | sed 's/ $//')
 [ "$abis" = "$want" ] || fail "native ABIs are '${abis:-none}', expected '${want:-none}'"
 
-if leaked=$(unzip -Z1 "$APK" | grep -Ei '\.(exe|gm1|tgx|bik|aiv|sav)$'); then
+if leaked=$(grep -Ei '\.(exe|gm1|tgx|bik|aiv|sav)$' <<<"$listing"); then
   fail "APK contains game data files: $leaked"
 fi
 

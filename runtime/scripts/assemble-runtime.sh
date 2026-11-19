@@ -40,7 +40,8 @@ rm -f "$zip_out"
 python3 -I "$here/scripts/package_runtime.py" "$stage" "$zip_out" "$version"
 ( cd "$o" && sha256sum "$(basename "$zip_out")" > "$(basename "$zip_out").sha256" )
 ls -l "$zip_out"
-unzip -p "$zip_out" SHC_RUNTIME_MANIFEST | grep -q $'^x\tlib/aarch64-linux-gnu/ld-linux-aarch64.so.1$' \
+manifest=$(unzip -p "$zip_out" SHC_RUNTIME_MANIFEST)
+grep -q $'^x\tlib/aarch64-linux-gnu/ld-linux-aarch64.so.1$' <<<"$manifest" \
   || { echo "::error::loader not marked executable in manifest"; exit 1; }
-unzip -p "$zip_out" SHC_RUNTIME_MANIFEST | grep -q $'^x\tbin/box64$' \
+grep -q $'^x\tbin/box64$' <<<"$manifest" \
   || { echo "::error::box64 not marked executable in manifest"; exit 1; }
