@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Combines the CI-built/fetched inputs into the runtime package imported by the app.
-# Inputs (under runtime/out/): bin/box64, licenses/, downloads/<wine>.tar.xz, downloads/cnc-ddraw-*.zip, userland/
+# Inputs (under runtime/out/): bin/box64, licenses/, downloads/<wine>.tar.xz, downloads/cnc-ddraw-*.zip, userland/ (+ userland-lib/)
 # Output: runtime/out/shc-runtime-<version>.zip  (+ .sha256)
 set -euo pipefail
 here="$(cd "$(dirname "$0")/.." && pwd)"
@@ -13,7 +13,7 @@ rm -rf "$stage"
 mkdir -p "$stage/bin" "$stage/lib/x86_64-linux-gnu" "$stage/wine" "$stage/cnc-ddraw" "$stage/licenses"
 
 install -m 0755 "$o/bin/box64" "$stage/bin/box64"
-cp -a "$o/userland/usr/lib/aarch64-linux-gnu" "$stage/lib/aarch64-linux-gnu"
+cp -a "$o/userland-lib" "$stage/lib/aarch64-linux-gnu"
 tar -xJf "$o/downloads/$WINE_ASSET" -C "$stage/wine" --strip-components=1
 unzip -q -j -o "$o/downloads/cnc-ddraw-${CNC_DDRAW_TAG}.zip" 'ddraw.dll' -d "$stage/cnc-ddraw"
 

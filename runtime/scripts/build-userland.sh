@@ -33,8 +33,38 @@ mmdebstrap --mode=root --variant=extract --architectures=arm64 --keyring="$keyri
 find "$out/usr/share/doc" -type f ! -name copyright -delete 2>/dev/null || true
 rm -rf "$out/usr/share/man" "$out/usr/share/info" "$out/usr/share/locale" "$out/usr/share/lintian"
 
-ld="$out/usr/lib/aarch64-linux-gnu/ld-linux-aarch64.so.1"
-[ -f "$ld" ] || { echo "::error::glibc loader not found at $ld"; exit 1; }
+# The extract variant does not create the merged-/usr symlinks: libc6 lands in lib/aarch64-linux-gnu,
+# most other libraries in usr/lib/aarch64-linux-gnu. Merge both into one flat directory and make
+# absolute symlinks (e.g. /lib/aarch64-linux-gnu/libz.so.1) relative to it.
+merged="$here/out/userland-lib"
+rm -rf "$merged"
+mkdir -p "$merged"
+for d in "$out/lib/aarch64-linux-gnu" "$out/usr/lib/aarch64-linux-gnu"; do
+  [ -d "$d" ] && cp -a "$d/." "$merged/"
+done
+python3 -I - "$merged" <<'PY'
+import os, sys
+root = sys.argv[1]
+prefixes = ("/lib/aarch64-linux-gnu/", "/usr/lib/aarch64-linux-gnu/")
+for dirpath, dirnames, filenames in os.walk(root):
+    for name in dirnames + filenames:
+        p = os.path.join(dirpath, name)
+        if not os.path.islink(p):
+            continue
+        t = os.readlink(p)
+        for pre in prefixes:
+            if t.startswith(pre):
+                rel = os.path.relpath(os.path.join(root, t[len(pre):]), dirpath)
+                os.unlink(p)
+                os.symlink(rel, p)
+                break
+PY
+
+ld="$merged/ld-linux-aarch64.so.1"
+[ -e "$ld" ] || { echo "::error::glibc loader not found in lib/ or usr/lib/aarch64-linux-gnu"; ls "$out" "$out/lib" 2>/dev/null; exit 1; }
 file -L "$ld" | tee "$here/out/ld.file.txt"
 grep -q "ARM aarch64" "$here/out/ld.file.txt"
-du -sh "$out"
+for so in libc.so.6 libX11.so.6 libasound.so.2 libfreetype.so.6; do
+  [ -e "$merged/$so" ] || { echo "::error::$so missing from userland"; exit 1; }
+done
+echo "userland: $(find "$merged" -maxdepth 1 | wc -l) entries, $(du -sh "$merged" | cut -f1)"
