@@ -12,6 +12,12 @@ on:
     paths:
       - "runtime/**"
       - ".github/workflows/runtime-components.yml"
+  pull_request:
+    paths:
+      - "runtime/**"
+      - "app/src/main/java/io/github/saefalasalynbtel198/shcport/core/RuntimeArchive.java"
+      - "scripts/ci/ExtractRuntime.java"
+      - ".github/workflows/runtime-components.yml"
 
 permissions:
   contents: read
@@ -98,3 +104,20 @@ jobs:
             runtime/out/shc-runtime-*.zip.sha256
           if-no-files-found: error
           retention-days: 30
+
+      - name: Set up JDK 17 (for the app's extractor)
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Install qemu-user
+        run: sudo apt-get install -y --no-install-recommends qemu-user
+      - name: Self-test the package under qemu-aarch64 (Linux ARM64, not Android)
+        run: bash runtime/scripts/test-runtime-qemu.sh runtime/out/shc-runtime-*.zip "$RUNNER_TEMP/rt-test"
+      - name: Upload qemu self-test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: runtime-qemu-selftest
+          path: ${{ runner.temp }}/rt-test/qemu-selftest.txt
+          if-no-files-found: warn
