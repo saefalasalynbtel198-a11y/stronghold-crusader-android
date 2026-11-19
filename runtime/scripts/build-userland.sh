@@ -22,7 +22,11 @@ packages=(
 )
 include=$(IFS=,; echo "${packages[*]}")
 
-mmdebstrap --mode=root --variant=extract --architectures=arm64 --include="$include" \
+# Debian's archive keys (package debian-archive-keyring) so apt verifies the Release signatures.
+keyring=/usr/share/keyrings/debian-archive-keyring.gpg
+[ -f "$keyring" ] || { echo "::error::$keyring missing (install debian-archive-keyring)"; exit 1; }
+
+mmdebstrap --mode=root --variant=extract --architectures=arm64 --keyring="$keyring" --include="$include" \
   "$DEBIAN_SUITE" "$out" "$DEBIAN_MIRROR"
 
 # Keep licence/copyright files, drop the rest of the documentation and locales.

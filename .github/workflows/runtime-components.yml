@@ -81,7 +81,7 @@ jobs:
       - name: Install tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends mmdebstrap file unzip xz-utils python3
+          sudo apt-get install -y --no-install-recommends mmdebstrap debian-archive-keyring file unzip xz-utils python3
       - name: Build ARM64 glibc userland
         run: sudo bash runtime/scripts/build-userland.sh && sudo chown -R "$(id -u):$(id -g)" runtime/out
       - name: Assemble package
