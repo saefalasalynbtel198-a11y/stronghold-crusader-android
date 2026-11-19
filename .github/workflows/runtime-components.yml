@@ -42,6 +42,7 @@ jobs:
             runtime/out/bin/box64
             runtime/out/box64.file.txt
             runtime/out/licenses/
+            runtime/out/x64lib/
           if-no-files-found: error
 
   inputs:
@@ -110,8 +111,8 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
-      - name: Install qemu-user
-        run: sudo apt-get install -y --no-install-recommends qemu-user
+      - name: Install qemu-user-static
+        run: sudo apt-get install -y --no-install-recommends qemu-user-static
       - name: Self-test the package under qemu-aarch64 (Linux ARM64, not Android)
         run: bash runtime/scripts/test-runtime-qemu.sh runtime/out/shc-runtime-*.zip "$RUNNER_TEMP/rt-test"
       - name: Upload qemu self-test report
