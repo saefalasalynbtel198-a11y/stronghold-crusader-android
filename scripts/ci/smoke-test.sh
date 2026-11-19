@@ -7,7 +7,27 @@ OUT="${2:-smoke-test-output}"
 PKG="io.github.saefalasalynbtel198.shcport"
 mkdir -p "$OUT"
 
-fail() { echo "::error::$*"; adb logcat -d > "$OUT/logcat.txt" || true; exit 1; }
+fail() {
+  echo "::error::$*"
+  adb logcat -d > "$OUT/logcat.txt" || true
+  # Print the evidence into the job log as well (artifacts are not always reachable).
+  echo "----- logcat: crashes, ActivityManager and app lines (last 120) -----"
+  grep -E "AndroidRuntime|FATAL|ShcPort|shcport|ActivityManager|libc  *:|DEBUG  *:" "$OUT/logcat.txt" | tail -n 120 || true
+  echo "----- process list -----"
+  adb shell ps -A | grep -i shcport || echo "(no shcport process)"
+  exit 1
+}
+
+# pidof can race with process start-up on slow emulators; poll for up to 10 s.
+app_pid() {
+  local i p
+  for i in 1 2 3 4 5 6 7 8 9 10; do
+    p=$(adb shell pidof "$PKG" | tr -d '\r' || true)
+    [ -n "$p" ] && { echo "$p"; return 0; }
+    sleep 1
+  done
+  return 1
+}
 
 adb wait-for-device
 adb shell getprop ro.build.version.release > "$OUT/android-version.txt"
@@ -17,16 +37,14 @@ adb logcat -c
 adb shell am start -W -n "$PKG/.app.MainActivity" | tee "$OUT/am-start.txt"
 grep -q "Status: ok" "$OUT/am-start.txt" || fail "activity did not start"
 sleep 6
-pid=$(adb shell pidof "$PKG" | tr -d '\r' || true)
-[ -n "$pid" ] || fail "app process is not running after launch"
+pid=$(app_pid) || fail "app process is not running after launch"
 
 # Lifecycle: background, then foreground again.
 adb shell input keyevent KEYCODE_HOME
 sleep 3
 adb shell am start -W -n "$PKG/.app.MainActivity" > /dev/null
 sleep 3
-pid2=$(adb shell pidof "$PKG" | tr -d '\r' || true)
-[ -n "$pid2" ] || fail "app process died across background/foreground"
+pid2=$(app_pid) || fail "app process died across background/foreground"
 
 adb shell screencap -p /sdcard/smoke.png && adb pull /sdcard/smoke.png "$OUT/screenshot.png" > /dev/null || true
 adb logcat -d > "$OUT/logcat.txt"
