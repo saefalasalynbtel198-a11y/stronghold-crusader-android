@@ -19,6 +19,8 @@ public final class RuntimeLayout {
     public File nativeLibDir() { return new File(root, "lib/aarch64-linux-gnu"); }
     public File x64LibDir() { return new File(root, "lib/x86_64-linux-gnu"); }
     public File box64() { return new File(root, "bin/box64"); }
+    /** Freestanding static seccomp probe (no glibc); see runtime/sysprobe. */
+    public File sysprobe() { return new File(root, "bin/shc-sysprobe"); }
     public File wine() { return new File(root, "wine/bin/wine"); }
     public File wineBinDir() { return new File(root, "wine/bin"); }
     public File cncDdraw() { return new File(root, "cnc-ddraw/ddraw.dll"); }

@@ -21,7 +21,8 @@ java -cp "$WORK/classes" ExtractRuntime "$ZIP" "$rt"
 ld="$rt/lib/aarch64-linux-gnu/ld-linux-aarch64.so.1"
 lib="$rt/lib/aarch64-linux-gnu"
 mkdir -p "$WORK/home/wine" "$WORK/tmp"
-export LD_LIBRARY_PATH="$lib" BOX64_LD_LIBRARY_PATH="$rt/lib/x86_64-linux-gnu" BOX64_PATH="$rt/wine/bin" \
+# Same environment as the app (core/RuntimeProbe.baseEnv), including glibc.pthread.rseq=0.
+export GLIBC_TUNABLES=glibc.pthread.rseq=0 LD_LIBRARY_PATH="$lib" BOX64_LD_LIBRARY_PATH="$rt/lib/x86_64-linux-gnu" BOX64_PATH="$rt/wine/bin" \
        BOX64_LOG=1 BOX64_NOBANNER=0 WINEPREFIX="$WORK/home/wine" WINEDEBUG=-all HOME="$WORK/home" TMPDIR="$WORK/tmp" LC_ALL=C
 
 QEMU=/usr/bin/qemu-aarch64-static
@@ -51,6 +52,7 @@ step() { # name expected timeout cmd...
   fi
 }
 step "glibc loader" "ld.so" 120 "$HERMETIC" "$QEMU" "$ld" --version
+step "Seccomp probe runs (qemu has no Android filter; checks the binary only)" "probe done" 60 "$HERMETIC" "$QEMU" "$rt/bin/shc-sysprobe"
 step "Box64" "Box64" 300 "$HERMETIC" "$QEMU" "$ld" --library-path "$lib" "$rt/bin/box64" --version
 step "Wine (x86-64 WoW64 via Box64)" "wine-" 900 "$HERMETIC" "$QEMU" "$ld" --library-path "$lib" "$rt/bin/box64" "$rt/wine/bin/wine" --version
 echo "All runtime self-test steps passed under qemu-aarch64 with host x86-64 libraries hidden (Linux, not Android)." | tee -a "$report"

@@ -13,6 +13,7 @@ rm -rf "$stage"
 mkdir -p "$stage/bin" "$stage/lib/x86_64-linux-gnu" "$stage/wine" "$stage/cnc-ddraw" "$stage/licenses"
 
 install -m 0755 "$o/bin/box64" "$stage/bin/box64"
+install -m 0755 "$o/bin/shc-sysprobe" "$stage/bin/shc-sysprobe"
 cp -a "$o/x64lib/." "$stage/lib/x86_64-linux-gnu/"
 cp -a "$o/userland-lib" "$stage/lib/aarch64-linux-gnu"
 tar -xJf "$o/downloads/$WINE_ASSET" -C "$stage/wine" --strip-components=1
@@ -33,7 +34,7 @@ SRC
 
 echo "$version" > "$stage/RUNTIME_VERSION"
 
-for f in bin/box64 lib/aarch64-linux-gnu/ld-linux-aarch64.so.1 lib/x86_64-linux-gnu/libgcc_s.so.1 wine/bin/wine cnc-ddraw/ddraw.dll RUNTIME_VERSION; do
+for f in bin/box64 bin/shc-sysprobe lib/aarch64-linux-gnu/ld-linux-aarch64.so.1 lib/x86_64-linux-gnu/libgcc_s.so.1 wine/bin/wine cnc-ddraw/ddraw.dll RUNTIME_VERSION; do
   [ -e "$stage/$f" ] || { echo "::error::missing $f in staged runtime"; exit 1; }
 done
 

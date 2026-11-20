@@ -1,5 +1,12 @@
 # Release notes
 
+## 0.2.1-dev.1 — BUILD 2 fix (development build, not a playable game)
+
+* Fix: Box64 was killed by Android's seccomp filter (SIGSYS, exit 159) because glibc registers `rseq` at start-up.
+  All runtime processes now run with `GLIBC_TUNABLES=glibc.pthread.rseq=0`. Requires runtime package **r2**.
+* Self-test: new static seccomp probe and a with/without comparison for Box64; exit codes are decoded
+  (e.g. "killed by signal 31 (SIGSYS …)"). Diagnostic steps are labelled and do not stop the test.
+
 ## 0.2.0-dev.1 — BUILD 2 (development build, not a playable game)
 
 * **Runtime screen:** install `shc-runtime-*.zip` (Box64 + Wine 11.0 WoW64 + cnc-ddraw + Debian ARM64

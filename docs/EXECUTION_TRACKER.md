@@ -1,6 +1,6 @@
 # Execution tracker
 
-Last updated: 2026-11-20 (BUILD 2 CI verified) · Repository: saefalasalynbtel198-a11y/stronghold-crusader-android (private, default branch `main`)
+Last updated: 2026-11-20 (BUILD 2 device failure: SIGSYS) · Repository: saefalasalynbtel198-a11y/stronghold-crusader-android (private, default branch `main`)
 
 ## Milestones
 
@@ -8,7 +8,7 @@ Last updated: 2026-11-20 (BUILD 2 CI verified) · Repository: saefalasalynbtel19
 |---|---|---|---|
 | 1 | Repository and previous BUILD audit | COMPLETED | `main` held only the initial commit (README, .gitignore); BUILD 1/2 had never been pushed; no PRs, runs or releases. Branch `claude/access-check` (1 temporary file) left untouched. |
 | 2 | BUILD 1 — launcher, core, CI | COMPLETED (merge pending) | PR #1; run [44613894366](https://github.com/saefalasalynbtel198-a11y/stronghold-crusader-android/actions/runs/44613894366) green: 33 unit tests, lint, APK verified, emulator smoke test passed. Merge into `main` needs the owner (agent merge was refused by its permission policy). |
-| 3 | BUILD 2 — runtime package, installer, on-device self-test | IN PROGRESS (CI COMPLETED; device test BLOCKED) | PR #2. APK run [44626864244](https://github.com/saefalasalynbtel198-a11y/stronghold-crusader-android/actions/runs/44626864244) green; runtime run [44626864246](https://github.com/saefalasalynbtel198-a11y/stronghold-crusader-android/actions/runs/44626864246) green incl. hermetic qemu-aarch64 self-test (loader → Box64 → `wine-11.0`). Android device test needs an ARM64 phone. |
+| 3 | BUILD 2 — runtime package, installer, on-device self-test | FAILED on device → fix IN PROGRESS | Real device (Xiaomi 25053PC47G, Android 16/SDK 36, arm64-v8a): loader PASS, Box64 FAIL exit 159 = SIGSYS. Fix 0.2.1-dev.1 / runtime r2 awaiting CI and a device re-test. |
 | 4 | Complete Android application (AR/EN, themes, game launch screen) | NOT STARTED | |
 | 5 | Runtime integration: display server, Wine prefix, cnc-ddraw, audio | NOT STARTED | Needs BUILD 2 device result |
 | 6 | Touch controls injected into the game | NOT STARTED | Mapper done and unit-tested; injection needs milestone 5 |
@@ -46,6 +46,19 @@ Last updated: 2026-11-20 (BUILD 2 CI verified) · Repository: saefalasalynbtel19
 * Runtime package (artifact `shc-runtime-package`, run 44626864246): `shc-runtime-r1-box64-v0.3.8-wine-11.0-cncddraw-v7.0.0.0-trixie.zip`, 180,293,457 bytes, 4,338 files / 45 symlinks / 52 executables. Inputs: Box64 v0.3.8 (built in CI), Wine 11.0 WoW64 (SHA-256 pinned), cnc-ddraw v7.0.0.0 (SHA-256 pinned), Debian trixie arm64 libraries (apt signature-verified).
 * qemu-aarch64 self-test (Linux ARM64 emulation, host x86-64 libraries hidden; **not Android**): glibc 2.41 loader PASS; `Box64 arm64 v0.3.8 with Dynarec` PASS; Box64 → Wine `wine-11.0` PASS, all x86-64 libraries from the package.
 * Not verified: anything on Android ARM64 (seccomp, SELinux exec rules at targetSdk 28, page size), runtime install via the app UI with the real 180 MB package, game start.
+
+## Milestone 3b — Android device failure and fix (0.2.1-dev.1, runtime r2)
+
+* Device report (owner, 2026-11-20): glibc loader `--version` PASS (103 ms); `box64 --version` FAIL, exit 159, 101 ms.
+* Analysis: 159 = 128 + 31 → killed by SIGSYS. `ld.so --version` returns before glibc's thread start-up; Box64 is the
+  first program to run it. glibc ≥ 2.35 registers `rseq` there; `rseq` is not in Android's app seccomp allowlist
+  (bionic SECCOMP_ALLOWLIST_COMMON lists clone3, openat2, faccessat2, … but not rseq), so the filter traps it.
+* Reproduced on Linux (not Android) with a filter that traps rseq: glibc programs die with exit 159;
+  with `GLIBC_TUNABLES=glibc.pthread.rseq=0` they run, threads included (`runtime/scripts/test-sysprobe.sh`, in CI).
+* Changes: rseq tunable in every runtime command (`RuntimeProbe.baseEnv`, `WineLaunchPlan`); new freestanding
+  static probe `bin/shc-sysprobe` that maps blocked syscalls on the device itself; self-test now runs
+  loader → probe [diag] → Box64 defaults [diag] → Box64 (rseq off) → Wine and decodes signal exits.
+* Not verified until the owner re-runs the self-test on the device: whether other syscalls are blocked too.
 
 ## Remaining blockers (owner action)
 

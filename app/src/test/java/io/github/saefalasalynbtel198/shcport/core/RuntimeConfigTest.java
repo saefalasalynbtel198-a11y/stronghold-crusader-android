@@ -23,6 +23,7 @@ public class RuntimeConfigTest {
         assertEquals("/data/app/files/runtime/wine/bin/wine", p.argv.get(4));
         assertEquals("D:\\Stronghold Crusader.exe", p.argv.get(5));
         assertEquals("/data/app/files/runtime/lib/aarch64-linux-gnu", p.env.get("LD_LIBRARY_PATH"));
+        assertEquals("glibc.pthread.rseq=0", p.env.get("GLIBC_TUNABLES"));
         assertEquals(prefix.getPath(), p.env.get("WINEPREFIX"));
         assertTrue(p.env.get("WINEDLLOVERRIDES").startsWith("ddraw=n,b"));
         assertEquals(game.getPath(), p.dosDeviceLinks.get("/data/app/files/prefix/wine/dosdevices/d:"));

@@ -16,9 +16,10 @@
 
 ## BUILD 2 risks (to be answered by the on-device self-test)
 
-* **glibc vs. Android seccomp.** Android applies a seccomp syscall filter to app processes. Unpatched Debian
-  glibc may use syscalls it does not allow (start-up of the loader would fail with SIGSYS). Fallback: an
-  Android-patched glibc (the Termux glibc-packages patches, which Winlator credits).
+* **glibc vs. Android seccomp — confirmed on a device.** Box64 was killed by SIGSYS (exit 159) on Android 16 because
+  glibc registers `rseq`, which Android's app filter blocks. Mitigation since 0.2.1-dev.1: `GLIBC_TUNABLES=glibc.pthread.rseq=0`
+  for every runtime process. If the on-device probe shows further blocked syscalls, the fallback is an
+  Android-patched glibc (Termux glibc-packages, which Winlator credits).
 * **Kernel page size.** Some newer devices use 16 KB pages; Box64 and Wine must cope (Box64 supports
   non-4K page sizes on other platforms; untested here).
 * **Self-test proves execution only.** Passing all three steps does not mean the game renders; that needs the

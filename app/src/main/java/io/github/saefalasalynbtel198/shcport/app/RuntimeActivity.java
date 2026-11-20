@@ -188,11 +188,16 @@ public final class RuntimeActivity extends Activity {
             long ms = (System.nanoTime() - t0) / 1_000_000;
             boolean ok = s.passed(exit, out);
             sb.append(out.trim()).append('\n');
-            sb.append(String.format(Locale.ROOT, "-> exit %d, %d ms: %s\n\n", exit, ms, ok ? "PASS" : "FAIL"));
+            sb.append(String.format(Locale.ROOT, "-> exit %d (%s), %d ms: %s%s\n\n", exit, RuntimeProbe.describeExit(exit), ms,
+                    ok ? "PASS" : "FAIL", s.required ? "" : " [diagnostic]"));
+            if (!s.required) continue;
             if (!ok) break;
             passed++;
         }
-        sb.append(String.format(Locale.ROOT, "Result: %d of %d steps passed.\n", passed, steps.size()));
+        int required = 0;
+        for (RuntimeProbe.Step s : steps) if (s.required) required++;
+        sb.append(String.format(Locale.ROOT, "Result: %d of %d required steps passed.\n", passed, required));
+        if (passed < required) sb.append("The runtime cannot run on this device yet. Please send this whole report.\n");
         return sb.toString();
     }
 

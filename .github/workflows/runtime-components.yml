@@ -16,6 +16,7 @@ on:
     paths:
       - "runtime/**"
       - "app/src/main/java/io/github/saefalasalynbtel198/shcport/core/RuntimeArchive.java"
+      - "app/src/main/java/io/github/saefalasalynbtel198/shcport/core/RuntimeProbe.java"
       - "scripts/ci/ExtractRuntime.java"
       - ".github/workflows/runtime-components.yml"
 
@@ -35,12 +36,17 @@ jobs:
           sudo apt-get install -y --no-install-recommends gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu libc6-dev-arm64-cross cmake ninja-build file python3
       - name: Build Box64
         run: bash runtime/scripts/build-box64.sh
+      - name: Build seccomp probe (aarch64, static, no libc)
+        run: bash runtime/scripts/build-sysprobe.sh
+      - name: Seccomp diagnosis test (Linux x86-64; reproduces exit 159 and the rseq fix)
+        run: bash runtime/scripts/test-sysprobe.sh
       - uses: actions/upload-artifact@v4
         with:
           name: runtime-box64-aarch64
           path: |
-            runtime/out/bin/box64
+            runtime/out/bin/
             runtime/out/box64.file.txt
+            runtime/out/sysprobe.file.txt
             runtime/out/licenses/
             runtime/out/x64lib/
           if-no-files-found: error
@@ -78,7 +84,7 @@ jobs:
           name: runtime-inputs
           path: runtime/out
       - name: Restore executable bit (artifacts do not keep permissions)
-        run: chmod 0755 runtime/out/bin/box64
+        run: chmod 0755 runtime/out/bin/box64 runtime/out/bin/shc-sysprobe
       - name: Install tools
         run: |
           sudo apt-get update

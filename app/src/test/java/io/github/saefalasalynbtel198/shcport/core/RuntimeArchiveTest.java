@@ -101,13 +101,35 @@ public class RuntimeArchiveTest {
     public void probeStepsRunThroughTheGlibcLoader() {
         RuntimeLayout rt = new RuntimeLayout(new File("/rt"));
         java.util.List<RuntimeProbe.Step> steps = RuntimeProbe.steps(rt, new File("/p/wine"), new File("/t"));
-        assertEquals(3, steps.size());
-        assertEquals("/rt/lib/aarch64-linux-gnu/ld-linux-aarch64.so.1", steps.get(1).argv.get(0));
-        assertEquals("/rt/bin/box64", steps.get(1).argv.get(3));
-        assertEquals("/rt/wine/bin/wine", steps.get(2).argv.get(4));
-        assertTrue(steps.get(2).passed(0, "wine-11.0\n"));
-        assertTrue(!steps.get(2).passed(1, "wine-11.0\n"));
-        assertTrue(!steps.get(1).passed(0, "Segmentation fault"));
+        assertEquals(5, steps.size());
+        // 1: loader, required
+        assertEquals("/rt/lib/aarch64-linux-gnu/ld-linux-aarch64.so.1", steps.get(0).argv.get(0));
+        assertTrue(steps.get(0).required);
+        // 2: static seccomp probe, executed directly, diagnostic
+        assertEquals("/rt/bin/shc-sysprobe", steps.get(1).argv.get(0));
+        assertTrue(!steps.get(1).required);
+        // 3: Box64 with glibc defaults: diagnostic and WITHOUT the rseq tunable
+        assertTrue(!steps.get(2).required);
+        assertTrue(!steps.get(2).env.containsKey("GLIBC_TUNABLES"));
+        assertEquals("/rt/bin/box64", steps.get(2).argv.get(3));
+        // 4: Box64 required, WITH the tunable
+        assertTrue(steps.get(3).required);
+        assertEquals("glibc.pthread.rseq=0", steps.get(3).env.get("GLIBC_TUNABLES"));
+        // 5: Wine required
+        assertEquals("/rt/wine/bin/wine", steps.get(4).argv.get(4));
+        assertTrue(steps.get(4).required);
+        assertTrue(steps.get(4).passed(0, "wine-11.0\n"));
+        assertTrue(!steps.get(4).passed(1, "wine-11.0\n"));
+        assertTrue(!steps.get(3).passed(159, ""));
+    }
+
+    @Test
+    public void exitCodesAreDecoded() {
+        assertTrue(RuntimeProbe.describeExit(159).contains("signal 31"));
+        assertTrue(RuntimeProbe.describeExit(159).contains("SIGSYS"));
+        assertTrue(RuntimeProbe.describeExit(139).contains("SIGSEGV"));
+        assertEquals("exit code 1", RuntimeProbe.describeExit(1));
+        assertEquals("timed out", RuntimeProbe.describeExit(-1));
     }
 
     private static void expectFailure(File zip) throws IOException {
