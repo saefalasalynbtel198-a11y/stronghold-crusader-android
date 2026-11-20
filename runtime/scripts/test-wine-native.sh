@@ -9,7 +9,8 @@ here="$(cd "$(dirname "$0")/.." && pwd)"
 w="$RUNNER_TEMP/wine-native"; [ -n "${RUNNER_TEMP:-}" ] || w="$(mktemp -d)"
 rm -rf "$w"; mkdir -p "$w"
 tar -xJf "$here/out/downloads/$WINE_ASSET" -C "$w"
-wine_root=$(find "$w" -maxdepth 1 -type d -name 'wine-*' | head -1)
+wine_root=$(find "$w" -mindepth 1 -maxdepth 1 -type d -name 'wine-*' | head -1)
+[ -x "$wine_root/bin/wine" ] || { echo "::error::wine not found under $w"; ls "$w"; exit 1; }
 python3 -I "$here/scripts/patch-wine-tmpdir.py" "$wine_root" | tee "$w/patch.txt"
 export WINEPREFIX="$w/prefix" WINEDEBUG=err+all,fixme-all WINEDLLOVERRIDES="mscoree,mshtml=d" DISPLAY=
 uid=$(id -u)
