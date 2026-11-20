@@ -10,7 +10,7 @@ Last updated: 2026-11-20 (BUILD 2 device report 2: glibc patched for Android sec
 | 2 | BUILD 1 — launcher, core, CI | COMPLETED (merge pending) | PR #1; run [44613894366](https://github.com/saefalasalynbtel198-a11y/stronghold-crusader-android/actions/runs/44613894366) green: 33 unit tests, lint, APK verified, emulator smoke test passed. Merge into `main` needs the owner (agent merge was refused by its permission policy). |
 | 3 | BUILD 2 — runtime package, installer, on-device self-test | FAILED on device twice → fix IN PROGRESS | Report 1: Box64 SIGSYS. Report 2 (0.2.1): rseq tunable insufficient; probe shows set_robust_list, faccessat2 and others blocked. Fix: Android-patched glibc (0.2.2-dev.1 / runtime r3), awaiting CI and device re-test. |
 | 3d | BUILD 2 device acceptance | COMPLETED (owner-reported) | Owner, 2026-11-20, Xiaomi 25053PC47G Android 16: patched glibc, threads/robust mutex/fork, Box64 v0.3.8, `wine --version` PASS with runtime r3 / app 0.2.2-dev.1. |
-| 5a | BUILD 3 phase 1–2: Wine prefix + Windows PE smoke test | IN PROGRESS | Branch `feature/build3-wine`, app 0.3.0-dev.1, runtime r4. Device test pending. |
+| 5a | BUILD 3 phase 1–2: Wine prefix + Windows PE smoke test | IN PROGRESS | Branch `feature/build3-wine` (PR #3), app 0.3.0-dev.1, runtime r4. Native x86-64 Linux CI test of the patched Wine PASSED (run [44755631555](https://github.com/saefalasalynbtel198-a11y/stronghold-crusader-android/actions/runs/44755631555)). Android device test pending — not COMPLETED until the device report passes. |
 | 4 | Complete Android application (AR/EN, themes, game launch screen) | NOT STARTED | |
 | 5 | Runtime integration: display server, Wine prefix, cnc-ddraw, audio | NOT STARTED | Needs BUILD 2 device result |
 | 6 | Touch controls injected into the game | NOT STARTED | Mapper done and unit-tested; injection needs milestone 5 |
@@ -107,6 +107,13 @@ Last updated: 2026-11-20 (BUILD 2 device report 2: glibc patched for Android sec
 * New: Windows PE smoke programs (mingw, 32-bit and 64-bit): file I/O, %TEMP%, CreateProcess + exit code, exit 42.
 * App: *Run Wine tests*: Box64 direct exec → `wineboot --init` → wineserver dir in prefix → PE smoke 64-bit →
   PE smoke 32-bit (WoW64) → game executable launch attempt [diagnostic, no display] → `wineserver -k`.
+* CI evidence (native x86-64 Linux, not Android; run 44755631555, job "Wine smoke test"): patched Wine 11.0
+  `wineboot --init` exit 0; after `wineserver -w` the prefix holds system.reg (3.2 MB), user.reg, userdef.reg and
+  drive_c; the wineserver directory is `<prefix>/.wineserver1001/server-801-…` and `/tmp/.wine-1001` was not used;
+  PE smoke 64-bit and 32-bit (WoW64) both exit 42: file write/read, %TEMP% file, CreateProcess child exit 7,
+  ddraw.dll loads. Expected display errors only (`nodrv_CreateWindow`: no display driver yet).
+* Bug found by that test and fixed: `wineboot` returns while wineserver still runs, and the registry is only written
+  when the server exits. The app plan now runs `wineserver -w` after `wineboot --init` and checks the prefix there.
 * GOG executables (owner fingerprints): no public hash record; build date 2012-10-02 and version strings 1,1,0,1
   match GOG's 2012 HD release, not 1.41(a) (GOGDB). Labelled "reported by owner, not independently verified", UNKNOWN.
 
@@ -130,7 +137,9 @@ Last updated: 2026-11-20 (BUILD 2 device report 2: glibc patched for Android sec
 
 ## Next action
 
-1. Owner: merge PR #1, then PR #2; run the BUILD 2 self-test on an ARM64 phone (APK + `shc-runtime-package`) and paste the report.
-2. Agent (independent of the device): milestone 4 — Arabic/English resources, light/dark themes, launch screen.
-3. Agent, after the device report: milestone 5 — display server (X11) + Wine prefix init + first `notepad`/`winver`
-   window on device, then the game executable.
+1. Owner: on the Android 16 phone install app 0.3.0-dev.1 and runtime r4 (*Remove runtime*, then *Install runtime
+   package…*), run *Run self-test*, then *Run Wine tests (BUILD 3)*, and send both reports.
+2. Agent, after a passing device report: phase 3 — display path (X server for Wine's X11 driver, or Wine's Android
+   driver), first window on the device, cnc-ddraw rendering test. Start Game stays disabled until then.
+3. Owner (independent): merge PRs #1–#3, push tags; update the GOG copy to 1.41(a) via GOG Galaxy or the GOG
+   offline installer and send the new fingerprint.
