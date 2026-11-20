@@ -10,7 +10,8 @@ Last updated: 2026-11-20 (BUILD 2 device report 2: glibc patched for Android sec
 | 2 | BUILD 1 — launcher, core, CI | COMPLETED (merge pending) | PR #1; run [44613894366](https://github.com/saefalasalynbtel198-a11y/stronghold-crusader-android/actions/runs/44613894366) green: 33 unit tests, lint, APK verified, emulator smoke test passed. Merge into `main` needs the owner (agent merge was refused by its permission policy). |
 | 3 | BUILD 2 — runtime package, installer, on-device self-test | FAILED on device twice → fix IN PROGRESS | Report 1: Box64 SIGSYS. Report 2 (0.2.1): rseq tunable insufficient; probe shows set_robust_list, faccessat2 and others blocked. Fix: Android-patched glibc (0.2.2-dev.1 / runtime r3), awaiting CI and device re-test. |
 | 3d | BUILD 2 device acceptance | COMPLETED (owner-reported) | Owner, 2026-11-20, Xiaomi 25053PC47G Android 16: patched glibc, threads/robust mutex/fork, Box64 v0.3.8, `wine --version` PASS with runtime r3 / app 0.2.2-dev.1. |
-| 5a | BUILD 3 phase 1–2: Wine prefix + Windows PE smoke test | IN PROGRESS | Branch `feature/build3-wine` (PR #3), app 0.3.0-dev.1, runtime r4. Native x86-64 Linux CI test of the patched Wine PASSED (run [44755631555](https://github.com/saefalasalynbtel198-a11y/stronghold-crusader-android/actions/runs/44755631555)). Android device test pending — not COMPLETED until the device report passes. |
+| 5a | BUILD 3 phase 1–2: Wine prefix + Windows PE smoke test | FAILED on device → fix IN PROGRESS | Device (0.3.0-dev.1, r4): `wineboot --init` failed after 306 ms, `wine client error:0: recvmsg: Connection reset by peer`. Root cause found in emulation (milestone 5b): Android's seccomp filter has no `accept`; wineserver dies at its first `accept()`. Fix in 0.3.1-dev.1 / runtime r5 (branch `fix/build3-wineserver`, PR #4). Not COMPLETED until the device report passes. |
+| 5b | CI for the fix (APK 0.3.1-dev.1, runtime r5) | BLOCKED | Every GitHub Actions job since 2026-11-20 21:04 UTC: "The job was not started because recent account payments have failed or your spending limit needs to be increased". Owner action: GitHub → Settings → Billing and plans. |
 | 4 | Complete Android application (AR/EN, themes, game launch screen) | NOT STARTED | |
 | 5 | Runtime integration: display server, Wine prefix, cnc-ddraw, audio | NOT STARTED | Needs BUILD 2 device result |
 | 6 | Touch controls injected into the game | NOT STARTED | Mapper done and unit-tested; injection needs milestone 5 |
@@ -117,6 +118,38 @@ Last updated: 2026-11-20 (BUILD 2 device report 2: glibc patched for Android sec
 * GOG executables (owner fingerprints): no public hash record; build date 2012-10-02 and version strings 1,1,0,1
   match GOG's 2012 HD release, not 1.41(a) (GOGDB). Labelled "reported by owner, not independently verified", UNKNOWN.
 
+## Milestone 5b — device report 3: wineserver connection reset (0.3.1-dev.1, runtime r5)
+
+* Device report (Xiaomi 25053PC47G, Android 16, app 0.3.0-dev.1, r4): self-test 4/4 PASS. Wine tests:
+  `wineboot --init` exit 1 after 306 ms, only output `wine client error:0: recvmsg: Connection reset by peer`;
+  `wineserver -k` then exit 1 (no server holding the lock).
+* Reading Wine 11.0 source: the server forks into a daemon, creates and listens on its socket and signals the
+  client, then enters its loop. A reset (not EOF) on the client's first `recvmsg` means the server's listening
+  socket closed with the client's connection still pending, i.e. wineserver ended before its first `accept()`
+  returned. No `wineserver:` message was printed, so it did not exit through `fatal_error`.
+* Reproduction of the exact device path on emulated ARM64 Linux (qemu-aarch64; Box64 v0.3.8 built from the same
+  recipe; patched glibc r4; patched Wine 11.0; Box64 executed directly with the PT_INTERP set by the app's
+  `ElfInterp`): `wine wineboot --init` with the auto-started wineserver **works** (prefix created in 87 s). So
+  the failure is Android-specific.
+* Android's app seccomp allowlist for arm64 computed from AOSP bionic (`runtime/android/gen-allowlist.py`,
+  bionic commit 731631f): it agrees with all 30 syscalls the device probe reported (10 blocked, 20 allowed).
+* Every syscall of all 21 processes of the device path recorded with qemu strace and checked against it
+  (`runtime/android/check-strace.py`): exactly one is outside — `accept` (aarch64 202) in the forked wineserver
+  daemon, at the first client connection. bionic implements `accept()` with `accept4`, so the filter has only
+  `accept4`; glibc 2.41 calls `accept` directly. Static scan of the patched libc: `accept` is the only blocked
+  syscall on ordinary file/socket/process paths (the rest are mount/setuid/SysV-IPC/mq functions Android forbids
+  by design).
+* Fix: glibc `accept()` → `accept4(fd, addr, len, 0)` (one hunk in `android-seccomp.patch`; glibc already has
+  this path for architectures without `accept`). Box64 unchanged.
+* Verified in emulation after the fix: same 21-process run uses `accept4`, **no syscall outside Android's
+  allowlist**, prefix created; PE smoke 64-bit and 32-bit (WoW64) exit 42 with "pe-smoke ok", 17 processes, no
+  syscall outside the allowlist. Linux emulation only — not a device result.
+* Added for the device test: process watcher `bin/shc-ptrace-watch` (reports SIGSYS with syscall number, fatal
+  signals, signal senders), seccomp probe lines for `accept`/`accept4`, environment and wineserver-directory
+  state in the report, app-started foreground wineserver as a second attempt, logcat excerpt.
+* CI: the Box64+Wine qemu job now fails on any syscall outside Android's allowlist; glibc test covers `accept`.
+* Blocked: no APK/runtime could be built (GitHub Actions billing, milestone 5b row).
+
 ## Remaining blockers (owner action)
 
 1. Merge PR #1 (then PR #2 retargets to `main` automatically when its base branch is merged and deleted, or retarget it manually).
@@ -137,9 +170,8 @@ Last updated: 2026-11-20 (BUILD 2 device report 2: glibc patched for Android sec
 
 ## Next action
 
-1. Owner: on the Android 16 phone install app 0.3.0-dev.1 and runtime r4 (*Remove runtime*, then *Install runtime
-   package…*), run *Run self-test*, then *Run Wine tests (BUILD 3)*, and send both reports.
-2. Agent, after a passing device report: phase 3 — display path (X server for Wine's X11 driver, or Wine's Android
-   driver), first window on the device, cnc-ddraw rendering test. Start Game stays disabled until then.
-3. Owner (independent): merge PRs #1–#3, push tags; update the GOG copy to 1.41(a) via GOG Galaxy or the GOG
-   offline installer and send the new fingerprint.
+1. Owner: fix GitHub Actions billing (Settings → Billing and plans), then tell the agent; the PR #4 builds run again.
+2. Owner, with app 0.3.1-dev.1 and runtime r5 from those builds: *Remove runtime*, *Install runtime package…*
+   (r5), *Run self-test* (expect `accept (bad fd)` BLOCKED, `accept4` allowed, glibctest `accept: ok`), then
+   *Run Wine tests (BUILD 3)*; send both reports.
+3. Agent, after a passing device report: phase 3 (display path). Start Game stays disabled until then.

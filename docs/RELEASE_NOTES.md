@@ -1,5 +1,16 @@
 # Release notes
 
+## 0.3.1-dev.1 + runtime r5 — BUILD 3 fix (development build, not a playable game)
+
+* Fix: wineserver was killed by Android's seccomp filter at its first `accept()` (Android allows only
+  `accept4` on arm64), so `wineboot --init` failed with `recvmsg: Connection reset by peer`. Runtime r5's glibc
+  uses `accept4`. Box64 unchanged.
+* Wine tests report more evidence: environment (uid, seccomp, SELinux), a process watcher showing how every
+  Wine process ends (`[watch]` lines), the wineserver directory state after a failure, a second attempt with a
+  wineserver started by the app, and SELinux/seccomp lines from logcat.
+* Self-test: the seccomp probe also checks `accept`/`accept4`; the glibc test also checks `accept`.
+* Start Game stays disabled.
+
 ## 0.3.0-dev.1 — BUILD 3 phase 1–2 (development build, not a playable game)
 
 * Requires runtime package **r4** (remove r3 first). r4 adds: Wine patched to keep its wineserver directory inside
