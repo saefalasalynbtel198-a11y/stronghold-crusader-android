@@ -23,6 +23,8 @@ public final class RuntimeLayout {
     public File sysprobe() { return new File(root, "bin/shc-sysprobe"); }
     /** glibc test program: start-up, threads, fork, faccessat, fchmodat; see runtime/glibc-android. */
     public File glibctest() { return new File(root, "bin/shc-glibctest"); }
+    /** ptrace process watcher (runtime r5+): reports how each process of a tree ends; see runtime/sysprobe. */
+    public File ptraceWatch() { return new File(root, "bin/shc-ptrace-watch"); }
     public File wine() { return new File(root, "wine/bin/wine"); }
     public File wineBinDir() { return new File(root, "wine/bin"); }
     public File peSmoke32() { return new File(root, "win/shc-pe-smoke-i686.exe"); }

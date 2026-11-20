@@ -91,6 +91,9 @@ public final class RuntimeProbe {
         env.put("BOX64_PATH", rt.wineBinDir().getPath());
         env.put("BOX64_LOG", "1");
         env.put("BOX64_NOBANNER", "0");
+        // Box64 otherwise runs "lscpu | sed" through /system/bin/sh at every start (and fails: no lscpu on
+        // Android). The value is only the CPU brand string reported to x86 programs.
+        env.put("BOX64_CPUNAME", "ARM64 (Android)");
         env.put("WINEPREFIX", prefixDir.getPath());
         env.put("WINEDEBUG", "-all");
         env.put("HOME", prefixDir.getParentFile() == null ? prefixDir.getPath() : prefixDir.getParent());

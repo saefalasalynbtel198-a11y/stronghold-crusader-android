@@ -91,6 +91,8 @@ public class WineBuild3Test {
         }
         assertEquals(java.util.Arrays.asList("/rt/bin/box64", "/rt/wine/bin/wine", "wineboot", "--init"), s.get(1).argv);
         assertEquals(WineTestPlan.Check.NONE, s.get(1).postCheck);
+        assertTrue(s.get(1).prefixInit);
+        assertEquals("ARM64 (Android)", s.get(1).env.get("BOX64_CPUNAME"));
         assertEquals(java.util.Arrays.asList("/rt/bin/box64", "/rt/wine/bin/wineserver", "-w"), s.get(2).argv);
         assertEquals(WineTestPlan.Check.PREFIX_CREATED, s.get(2).postCheck);
         assertEquals(WineTestPlan.Check.WINESERVER_DIR, s.get(3).postCheck);
@@ -103,5 +105,36 @@ public class WineBuild3Test {
         assertEquals("-k", s.get(7).argv.get(2));
         // without a launchable game the game step is omitted
         assertEquals(7, WineTestPlan.steps(rt, new File("/p/wine"), new File("/t"), new File("/g"), null).size());
+    }
+
+    @Test
+    public void wineCommandsRunUnderTheProcessWatcherWhenTheRuntimeHasIt() throws IOException {
+        File root = java.nio.file.Files.createTempDirectory("shc-rt").toFile();
+        File watch = new File(root, "bin/shc-ptrace-watch");
+        assertTrue(watch.getParentFile().mkdirs());
+        assertTrue(watch.createNewFile());
+        RuntimeLayout rt = new RuntimeLayout(root);
+        List<WineTestPlan.Step> s = WineTestPlan.steps(rt, new File("/p/wine"), new File("/t"), new File("/g"), null);
+        List<String> init = s.get(1).argv;
+        assertEquals(rt.loader().getPath(), init.get(0));            // watcher is a glibc program: via the loader
+        assertEquals("--library-path", init.get(1));
+        assertEquals(watch.getPath(), init.get(3));
+        assertEquals("--", init.get(4));
+        assertEquals(java.util.Arrays.asList(rt.box64().getPath(), rt.wine().getPath(), "wineboot", "--init"),
+                init.subList(5, init.size()));
+        assertEquals(rt.box64().getPath(), s.get(2).argv.get(0));    // wineserver -w is not traced
+        assertTrue(s.get(4).argv.contains(watch.getPath()));          // PE smoke tests are traced
+
+        List<WineTestPlan.Step> alt = WineTestPlan.alternativeInit(rt, new File("/p/wine"), new File("/t"));
+        assertEquals(2, alt.size());
+        assertTrue(alt.get(0).background);
+        assertEquals(java.util.Arrays.asList(rt.box64().getPath(), new File(rt.wineBinDir(), "wineserver").getPath(), "-f", "-d1"),
+                alt.get(0).argv);
+        assertEquals(WineTestPlan.Check.WINESERVER_DIR, alt.get(0).postCheck);
+        assertTrue(alt.get(1).prefixInit);
+        assertTrue(alt.get(1).argv.contains("wineboot"));
+        WineTestPlan.Step server = WineTestPlan.appServer(rt, new File("/p/wine"), new File("/t"), "n", "l.log", "-f", "-p");
+        assertTrue(server.background);
+        assertEquals("-p", server.argv.get(server.argv.size() - 1));
     }
 }
