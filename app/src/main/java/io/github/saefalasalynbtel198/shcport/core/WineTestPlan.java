@@ -69,7 +69,11 @@ public final class WineTestPlan {
         s.add(new Step("Box64 direct exec (PT_INTERP = patched glibc loader)", Arrays.asList(box64, "--version"),
                 env, rt.root, 30_000, 0, "Box64", Check.NONE, true));
         s.add(new Step("wineboot --init (create Wine prefix)", Arrays.asList(box64, wine, "wineboot", "--init"),
-                env, rt.root, 20 * 60_000, 0, null, Check.PREFIX_CREATED, true));
+                env, rt.root, 20 * 60_000, 0, null, Check.NONE, true));
+        // wineboot returns while wineserver is still running; the registry (system.reg) is only written
+        // when wineserver flushes it on exit, so wait for the server before checking the prefix.
+        s.add(new Step("wineserver -w (wait for Wine to save the prefix)", Arrays.asList(box64, wineserver, "-w"),
+                env, rt.root, 5 * 60_000, 0, null, Check.PREFIX_CREATED, true));
         s.add(new Step("wineserver directory inside the prefix", Arrays.asList(box64, wineserver, "-p5"),
                 env, rt.root, 60_000, null, null, Check.WINESERVER_DIR, true));
         s.add(new Step("Windows PE smoke test, 64-bit", Arrays.asList(box64, wine, rt.peSmoke64().getPath(), "C:\\"),

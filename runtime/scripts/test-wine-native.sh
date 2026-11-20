@@ -20,6 +20,9 @@ set +e
 timeout 600 "$wine_root/bin/wine" wineboot --init > "$w/wineboot.log" 2>&1; code=$?
 set -e
 echo "wineboot --init exit $code"; tail -n 20 "$w/wineboot.log"
+# wineboot returns while wineserver is still running; system.reg is written when the server exits.
+timeout 300 "$wine_root/bin/wineserver" -w; echo "wineserver -w exit $?"
+ls -la "$WINEPREFIX" || true
 [ $code -eq 0 ] && [ -f "$WINEPREFIX/system.reg" ] || { echo "::error::wineboot did not create the prefix"; exit 1; }
 ls -d "$WINEPREFIX"/.wineserver"$uid"/server-* || { echo "::error::wineserver dir not in prefix"; exit 1; }
 [ ! -e "/tmp/.wine-$uid" ] || { echo "::error::/tmp/.wine-$uid was still used"; exit 1; }

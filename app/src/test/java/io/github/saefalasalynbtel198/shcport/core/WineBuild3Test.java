@@ -83,23 +83,25 @@ public class WineBuild3Test {
     public void wineTestPlanRunsBox64DirectlyWithoutDisplay() {
         RuntimeLayout rt = new RuntimeLayout(new File("/rt"));
         List<WineTestPlan.Step> s = WineTestPlan.steps(rt, new File("/p/wine"), new File("/t"), new File("/g"), "Stronghold Crusader.exe");
-        assertEquals(7, s.size());
+        assertEquals(8, s.size());
         for (WineTestPlan.Step step : s) {
             assertEquals("/rt/bin/box64", step.argv.get(0));        // direct exec, no explicit loader
             assertEquals("", step.env.get("DISPLAY"));
             assertEquals("glibc.pthread.rseq=0", step.env.get("GLIBC_TUNABLES"));
         }
         assertEquals(java.util.Arrays.asList("/rt/bin/box64", "/rt/wine/bin/wine", "wineboot", "--init"), s.get(1).argv);
-        assertEquals(WineTestPlan.Check.PREFIX_CREATED, s.get(1).postCheck);
-        assertEquals(WineTestPlan.Check.WINESERVER_DIR, s.get(2).postCheck);
-        assertEquals("/rt/win/shc-pe-smoke-i686.exe", s.get(4).argv.get(2));
-        assertTrue(s.get(4).outputOk(42, "...\npe-smoke ok\n"));
-        assertTrue(!s.get(4).outputOk(0, "pe-smoke ok"));
-        assertTrue(!s.get(4).outputOk(-1, "pe-smoke ok"));
-        assertEquals("D:\\Stronghold Crusader.exe", s.get(5).argv.get(2));
-        assertTrue(!s.get(5).required);
-        assertEquals("-k", s.get(6).argv.get(2));
+        assertEquals(WineTestPlan.Check.NONE, s.get(1).postCheck);
+        assertEquals(java.util.Arrays.asList("/rt/bin/box64", "/rt/wine/bin/wineserver", "-w"), s.get(2).argv);
+        assertEquals(WineTestPlan.Check.PREFIX_CREATED, s.get(2).postCheck);
+        assertEquals(WineTestPlan.Check.WINESERVER_DIR, s.get(3).postCheck);
+        assertEquals("/rt/win/shc-pe-smoke-i686.exe", s.get(5).argv.get(2));
+        assertTrue(s.get(5).outputOk(42, "...\npe-smoke ok\n"));
+        assertTrue(!s.get(5).outputOk(0, "pe-smoke ok"));
+        assertTrue(!s.get(5).outputOk(-1, "pe-smoke ok"));
+        assertEquals("D:\\Stronghold Crusader.exe", s.get(6).argv.get(2));
+        assertTrue(!s.get(6).required);
+        assertEquals("-k", s.get(7).argv.get(2));
         // without a launchable game the game step is omitted
-        assertEquals(6, WineTestPlan.steps(rt, new File("/p/wine"), new File("/t"), new File("/g"), null).size());
+        assertEquals(7, WineTestPlan.steps(rt, new File("/p/wine"), new File("/t"), new File("/g"), null).size());
     }
 }
