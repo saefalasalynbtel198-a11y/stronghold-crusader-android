@@ -58,7 +58,14 @@ Last updated: 2026-11-20 (BUILD 2 device failure: SIGSYS) · Repository: saefala
 * Changes: rseq tunable in every runtime command (`RuntimeProbe.baseEnv`, `WineLaunchPlan`); new freestanding
   static probe `bin/shc-sysprobe` that maps blocked syscalls on the device itself; self-test now runs
   loader → probe [diag] → Box64 defaults [diag] → Box64 (rseq off) → Wine and decodes signal exits.
-* Not verified until the owner re-runs the self-test on the device: whether other syscalls are blocked too.
+* CI (commit `c6c90f2`): APK run [44728590081](https://github.com/saefalasalynbtel198-a11y/stronghold-crusader-android/actions/runs/44728590081)
+  green — `app-debug.apk` 72,924 bytes, 0.2.1-dev.1-debug (3), SHA-256 `0ce27ddabf99db21800a9d2bac48eef7668b071862caa75f5e2c61f38a8d87a9`,
+  emulator smoke test passed. Runtime run [44728590041](https://github.com/saefalasalynbtel198-a11y/stronghold-crusader-android/actions/runs/44728590041)
+  green — seccomp diagnosis test (exit 159 reproduced, tunable fix confirmed), package
+  `shc-runtime-r2-box64-v0.3.8-wine-11.0-cncddraw-v7.0.0.0-trixie.zip` (180,296,526 bytes), hermetic qemu self-test
+  (loader, probe, Box64, `wine-11.0`) passed.
+* Not verified until the owner re-runs the self-test on the device: that Box64 now starts on Android, and whether
+  other syscalls are blocked too (the probe step will list them).
 
 ## Remaining blockers (owner action)
 
