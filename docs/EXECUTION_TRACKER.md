@@ -1,6 +1,6 @@
 # Execution tracker
 
-Last updated: 2026-11-20 (BUILD 2 device failure: SIGSYS) · Repository: saefalasalynbtel198-a11y/stronghold-crusader-android (private, default branch `main`)
+Last updated: 2026-11-20 (BUILD 2 device report 2: glibc patched for Android seccomp) · Repository: saefalasalynbtel198-a11y/stronghold-crusader-android (private, default branch `main`)
 
 ## Milestones
 
@@ -8,7 +8,7 @@ Last updated: 2026-11-20 (BUILD 2 device failure: SIGSYS) · Repository: saefala
 |---|---|---|---|
 | 1 | Repository and previous BUILD audit | COMPLETED | `main` held only the initial commit (README, .gitignore); BUILD 1/2 had never been pushed; no PRs, runs or releases. Branch `claude/access-check` (1 temporary file) left untouched. |
 | 2 | BUILD 1 — launcher, core, CI | COMPLETED (merge pending) | PR #1; run [44613894366](https://github.com/saefalasalynbtel198-a11y/stronghold-crusader-android/actions/runs/44613894366) green: 33 unit tests, lint, APK verified, emulator smoke test passed. Merge into `main` needs the owner (agent merge was refused by its permission policy). |
-| 3 | BUILD 2 — runtime package, installer, on-device self-test | FAILED on device → fix IN PROGRESS | Real device (Xiaomi 25053PC47G, Android 16/SDK 36, arm64-v8a): loader PASS, Box64 FAIL exit 159 = SIGSYS. Fix 0.2.1-dev.1 / runtime r2 awaiting CI and a device re-test. |
+| 3 | BUILD 2 — runtime package, installer, on-device self-test | FAILED on device twice → fix IN PROGRESS | Report 1: Box64 SIGSYS. Report 2 (0.2.1): rseq tunable insufficient; probe shows set_robust_list, faccessat2 and others blocked. Fix: Android-patched glibc (0.2.2-dev.1 / runtime r3), awaiting CI and device re-test. |
 | 4 | Complete Android application (AR/EN, themes, game launch screen) | NOT STARTED | |
 | 5 | Runtime integration: display server, Wine prefix, cnc-ddraw, audio | NOT STARTED | Needs BUILD 2 device result |
 | 6 | Touch controls injected into the game | NOT STARTED | Mapper done and unit-tested; injection needs milestone 5 |
@@ -66,6 +66,23 @@ Last updated: 2026-11-20 (BUILD 2 device failure: SIGSYS) · Repository: saefala
   (loader, probe, Box64, `wine-11.0`) passed.
 * Not verified until the owner re-runs the self-test on the device: that Box64 now starts on Android, and whether
   other syscalls are blocked too (the probe step will list them).
+
+## Milestone 3c — device report 2 and the patched glibc (0.2.2-dev.1, runtime r3)
+
+* Device report 2 (owner): loader PASS; probe PASS; Box64 default FAIL 159; Box64 with rseq tunable FAIL 159.
+  Probe BLOCKED list: rseq, set_robust_list, get_robust_list, faccessat2, openat2, futex_waitv, io_uring_setup,
+  set_mempolicy_home_node, setuid, mount.
+* Root cause: glibc 2.41 calls `set_robust_list` in `__tls_init_tp` (every process) and in `_Fork`; the rseq tunable
+  cannot prevent that. Unmodified glibc cannot run inside an Android 16 app process on this device.
+* Reproduced on Linux with a filter trapping exactly the device's blocked set: unpatched glibc + tunable → 159.
+* Fix: rebuild glibc 2.41 from source (pinned SHA-256) with `runtime/glibc-android/android-seccomp.patch`
+  (8 changes, existing glibc fallback paths: no robust-list syscall, rseq default off, no faccessat2/fchmodat2,
+  no clone3 in threads and posix_spawn). Local test: patched glibc runs start-up, threads, robust mutex, fork,
+  posix_spawn, faccessat, fchmodat under the device's blocked set (`test-glibc-android.sh`), also in CI.
+* The package replaces Debian's glibc with the patched build; new required self-test step `shc-glibctest`.
+* Requirement found for BUILD 3: every glibc child process must be started via the packaged loader.
+* Also (task 3): build fingerprint (text version strings, PE date, sections, hashes) + *Copy build fingerprint*;
+  unverified DRM-free builds are labelled as such and not auto-accepted. GOG executable hashes still needed.
 
 ## Remaining blockers (owner action)
 

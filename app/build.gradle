@@ -3,8 +3,8 @@ plugins {
 }
 
 // Version is defined once here; CI and release workflows read it via `gradle -q printVersion`.
-def appVersionName = '0.2.1-dev.1'
-def appVersionCode = 3
+def appVersionName = '0.2.2-dev.1'
+def appVersionCode = 4
 
 android {
     namespace 'io.github.saefalasalynbtel198.shcport'

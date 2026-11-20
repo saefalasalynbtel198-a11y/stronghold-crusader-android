@@ -1,5 +1,12 @@
 # Release notes
 
+## 0.2.2-dev.1 — BUILD 2 fix 2 (development build, not a playable game)
+
+* Runtime r3 ships glibc 2.41 rebuilt with an Android seccomp patch: unmodified glibc was killed by SIGSYS on
+  Android 16 because it calls `set_robust_list` (and `rseq`, `faccessat2`) — the rseq tunable alone was not enough.
+* Self-test: new required step "glibc start-up, threads, fork"; Box64 without the tunable is a diagnostic.
+* Game import: build fingerprint (version strings, build date, sections, hashes) and *Copy build fingerprint*.
+
 ## 0.2.1-dev.1 — BUILD 2 fix (development build, not a playable game)
 
 * Fix: Box64 was killed by Android's seccomp filter (SIGSYS, exit 159) because glibc registers `rseq` at start-up.

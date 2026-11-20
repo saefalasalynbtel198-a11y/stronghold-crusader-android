@@ -16,8 +16,9 @@ import java.util.Map;
  * <ol>
  *   <li>glibc loader runs (exec permission; the loader's --version path exits before full start-up)</li>
  *   <li>seccomp probe (static, no glibc): lists syscalls Android's app filter blocks — diagnostic</li>
- *   <li>Box64 with glibc defaults — diagnostic; a SIGSYS here with step 4 passing proves rseq is the cause</li>
- *   <li>Box64 with glibc's rseq registration disabled (the runtime's real configuration) — required</li>
+ *   <li>glibc test program on the Android-patched glibc: start-up, threads, fork, faccessat — required</li>
+ *   <li>Box64 without GLIBC_TUNABLES — diagnostic (the patched glibc must not need it)</li>
+ *   <li>Box64 in the runtime's real configuration — required</li>
  *   <li>Box64 runs the x86-64 Wine loader and Wine reports its version — required</li>
  * </ol>
  *
@@ -27,8 +28,8 @@ public final class RuntimeProbe {
 
     /**
      * glibc ≥ 2.35 registers restartable sequences (the rseq syscall) during start-up. Android's app
-     * seccomp filter does not allow rseq, so any glibc program is killed with SIGSYS (exit 159).
-     * This documented glibc tunable turns the registration off.
+     * seccomp filter does not allow rseq. The packaged glibc is patched to default this off
+     * (runtime/glibc-android); the tunable is kept as a second guard.
      */
     public static final String GLIBC_TUNABLES = "glibc.pthread.rseq=0";
 
@@ -70,7 +71,9 @@ public final class RuntimeProbe {
                 Arrays.asList(ld, "--version"), env, 15_000, true));
         steps.add(new Step("Seccomp syscall probe (diagnostic)", "probe done",
                 Arrays.asList(rt.sysprobe().getPath()), env, 15_000, false));
-        steps.add(new Step("Box64 with glibc defaults (diagnostic: SIGSYS expected if rseq is blocked)", "Box64",
+        steps.add(new Step("glibc start-up, threads, fork (Android-patched glibc)", "glibctest ok",
+                Arrays.asList(ld, "--library-path", lib, rt.glibctest().getPath(), tmpDir.getPath()), env, 30_000, true));
+        steps.add(new Step("Box64 without GLIBC_TUNABLES (diagnostic)", "Box64",
                 Arrays.asList(ld, "--library-path", lib, box64, "--version"), glibcDefaults, 30_000, false));
         steps.add(new Step("Box64 (rseq registration disabled)", "Box64",
                 Arrays.asList(ld, "--library-path", lib, box64, "--version"), env, 30_000, true));

@@ -21,6 +21,8 @@ public final class RuntimeLayout {
     public File box64() { return new File(root, "bin/box64"); }
     /** Freestanding static seccomp probe (no glibc); see runtime/sysprobe. */
     public File sysprobe() { return new File(root, "bin/shc-sysprobe"); }
+    /** glibc test program: start-up, threads, fork, faccessat, fchmodat; see runtime/glibc-android. */
+    public File glibctest() { return new File(root, "bin/shc-glibctest"); }
     public File wine() { return new File(root, "wine/bin/wine"); }
     public File wineBinDir() { return new File(root, "wine/bin"); }
     public File cncDdraw() { return new File(root, "cnc-ddraw/ddraw.dll"); }

@@ -46,6 +46,25 @@ public class GameBuildClassifierTest {
     }
 
     @Test
+    public void textVersionStringCanIndicateHd() {
+        java.util.Map<String, String> strings = new java.util.LinkedHashMap<>();
+        strings.put("FileVersion", "1, 4, 1, 0");
+        PeInfo p = new PeInfo(PeInfo.MACHINE_I386, 0, Arrays.asList(".text"), new int[] {1, 0, 0, 1}, 1, "abc", "x", strings);
+        assertEquals(GameBuildClassifier.Support.LIKELY_SUPPORTED, GameBuildClassifier.classify(p).support);
+        assertTrue(GameBuildClassifier.looksLikeHd14(null, "1.41"));
+        assertTrue(!GameBuildClassifier.looksLikeHd14(new int[] {1, 0, 0, 1}, "1, 1, 0, 1"));
+    }
+
+    @Test
+    public void unverifiedDrmFreeBuildIsUnknownAndAsksForFingerprint() {
+        GameBuildClassifier.Result r = GameBuildClassifier.classify(
+                pe(PeInfo.MACHINE_I386, "abc", new int[] {1, 0, 0, 1}, ".text", ".rdata", ".data", ".rsrc"));
+        assertEquals(GameBuildClassifier.Support.UNKNOWN, r.support);
+        assertTrue(r.label.startsWith("DRM-free build, not yet verified"));
+        assertTrue(r.explanation.contains("fingerprint"));
+    }
+
+    @Test
     public void otherBuildsAreUnknown() {
         GameBuildClassifier.Result r = GameBuildClassifier.classify(
                 pe(PeInfo.MACHINE_I386, "abc", new int[] {1, 2, 0, 0}, ".text"));

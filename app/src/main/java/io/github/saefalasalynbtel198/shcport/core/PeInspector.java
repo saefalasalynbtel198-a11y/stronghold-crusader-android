@@ -7,7 +7,9 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Minimal, dependency-free reader for the parts of a PE (Windows .exe) header the launcher needs:
@@ -60,6 +62,7 @@ public final class PeInspector {
         byte[] table = readAt(raf, sectionTable, 40 * numberOfSections);
         List<String> names = new ArrayList<>();
         int[] version = null;
+        Map<String, String> strings = new LinkedHashMap<>();
         for (int i = 0; i < numberOfSections; i++) {
             int base = i * 40;
             String name = sectionName(table, base);
@@ -68,12 +71,14 @@ public final class PeInspector {
             long rawPtr = u32(table, base + 20);
             if (version == null && name.equals(".rsrc") && rawPtr > 0 && rawSize > 0
                     && rawPtr + rawSize <= length && rawSize <= 64L * 1024 * 1024) {
-                version = findFixedFileVersion(readAt(raf, rawPtr, (int) rawSize));
+                byte[] rsrc = readAt(raf, rawPtr, (int) rawSize);
+                version = findFixedFileVersion(rsrc);
+                strings = findVersionStrings(rsrc);
             }
         }
 
         String[] hashes = hashes(raf);
-        return new PeInfo(machine, timeDateStamp, names, version, length, hashes[0], hashes[1]);
+        return new PeInfo(machine, timeDateStamp, names, version, length, hashes[0], hashes[1], strings);
     }
 
     /** Scans a resource section for VS_FIXEDFILEINFO and returns {major, minor, build, revision}. */
@@ -86,6 +91,54 @@ public final class PeInspector {
             }
         }
         return null;
+    }
+
+    static final String[] VERSION_KEYS = {
+            "CompanyName", "FileDescription", "FileVersion", "InternalName", "OriginalFilename",
+            "ProductName", "ProductVersion"
+    };
+
+    /**
+     * Extracts text entries of the version resource. Each entry is a String structure:
+     * wLength, wValueLength, wType, UTF-16 key + NUL, padding to 4 bytes, UTF-16 value + NUL.
+     * Resource data is DWORD-aligned within the section, so alignment is computed on the section offset.
+     */
+    static Map<String, String> findVersionStrings(byte[] rsrc) {
+        Map<String, String> out = new LinkedHashMap<>();
+        for (String key : VERSION_KEYS) {
+            byte[] k = utf16z(key);
+            int at = indexOf(rsrc, k, 6);
+            if (at < 0) continue;
+            int structStart = at - 6;
+            int wValueLength = u16(rsrc, structStart + 2);
+            int valueAt = (at + k.length + 3) & ~3;
+            StringBuilder v = new StringBuilder();
+            for (int i = valueAt; i + 1 < rsrc.length && v.length() < 128; i += 2) {
+                char c = (char) u16(rsrc, i);
+                if (c == 0) break;
+                v.append(c);
+            }
+            if (wValueLength > 0 || v.length() > 0) out.put(key, v.toString().trim());
+        }
+        return out;
+    }
+
+    private static byte[] utf16z(String s) {
+        byte[] b = new byte[(s.length() + 1) * 2];
+        for (int i = 0; i < s.length(); i++) {
+            b[2 * i] = (byte) s.charAt(i);
+            b[2 * i + 1] = (byte) (s.charAt(i) >> 8);
+        }
+        return b;
+    }
+
+    private static int indexOf(byte[] hay, byte[] needle, int from) {
+        outer:
+        for (int i = from; i + needle.length <= hay.length; i += 2) {
+            for (int j = 0; j < needle.length; j++) if (hay[i + j] != needle[j]) continue outer;
+            return i;
+        }
+        return -1;
     }
 
     private static String[] hashes(RandomAccessFile raf) throws IOException {

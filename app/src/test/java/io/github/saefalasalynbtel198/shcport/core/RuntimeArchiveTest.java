@@ -101,26 +101,31 @@ public class RuntimeArchiveTest {
     public void probeStepsRunThroughTheGlibcLoader() {
         RuntimeLayout rt = new RuntimeLayout(new File("/rt"));
         java.util.List<RuntimeProbe.Step> steps = RuntimeProbe.steps(rt, new File("/p/wine"), new File("/t"));
-        assertEquals(5, steps.size());
+        assertEquals(6, steps.size());
         // 1: loader, required
         assertEquals("/rt/lib/aarch64-linux-gnu/ld-linux-aarch64.so.1", steps.get(0).argv.get(0));
         assertTrue(steps.get(0).required);
         // 2: static seccomp probe, executed directly, diagnostic
         assertEquals("/rt/bin/shc-sysprobe", steps.get(1).argv.get(0));
         assertTrue(!steps.get(1).required);
-        // 3: Box64 with glibc defaults: diagnostic and WITHOUT the rseq tunable
-        assertTrue(!steps.get(2).required);
-        assertTrue(!steps.get(2).env.containsKey("GLIBC_TUNABLES"));
-        assertEquals("/rt/bin/box64", steps.get(2).argv.get(3));
-        // 4: Box64 required, WITH the tunable
-        assertTrue(steps.get(3).required);
-        assertEquals("glibc.pthread.rseq=0", steps.get(3).env.get("GLIBC_TUNABLES"));
-        // 5: Wine required
-        assertEquals("/rt/wine/bin/wine", steps.get(4).argv.get(4));
+        // 3: glibc test program through the loader, required
+        assertEquals("/rt/bin/shc-glibctest", steps.get(2).argv.get(3));
+        assertEquals("/t", steps.get(2).argv.get(4));
+        assertTrue(steps.get(2).required);
+        assertTrue(steps.get(2).passed(0, "glibc 2.41\nglibctest ok\n"));
+        // 4: Box64 diagnostic, WITHOUT the rseq tunable
+        assertTrue(!steps.get(3).required);
+        assertTrue(!steps.get(3).env.containsKey("GLIBC_TUNABLES"));
+        assertEquals("/rt/bin/box64", steps.get(3).argv.get(3));
+        // 5: Box64 required, WITH the tunable
         assertTrue(steps.get(4).required);
-        assertTrue(steps.get(4).passed(0, "wine-11.0\n"));
-        assertTrue(!steps.get(4).passed(1, "wine-11.0\n"));
-        assertTrue(!steps.get(3).passed(159, ""));
+        assertEquals("glibc.pthread.rseq=0", steps.get(4).env.get("GLIBC_TUNABLES"));
+        assertTrue(!steps.get(4).passed(159, ""));
+        // 6: Wine required
+        assertEquals("/rt/wine/bin/wine", steps.get(5).argv.get(4));
+        assertTrue(steps.get(5).required);
+        assertTrue(steps.get(5).passed(0, "wine-11.0\n"));
+        assertTrue(!steps.get(5).passed(1, "wine-11.0\n"));
     }
 
     @Test

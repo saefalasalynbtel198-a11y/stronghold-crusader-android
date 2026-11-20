@@ -53,6 +53,7 @@ step() { # name expected timeout cmd...
 }
 step "glibc loader" "ld.so" 120 "$HERMETIC" "$QEMU" "$ld" --version
 step "Seccomp probe runs (qemu has no Android filter; checks the binary only)" "probe done" 60 "$HERMETIC" "$QEMU" "$rt/bin/shc-sysprobe"
+step "glibc start-up, threads, fork (patched glibc)" "glibctest ok" 300 "$HERMETIC" "$QEMU" "$ld" --library-path "$lib" "$rt/bin/shc-glibctest" "$WORK/tmp"
 step "Box64" "Box64" 300 "$HERMETIC" "$QEMU" "$ld" --library-path "$lib" "$rt/bin/box64" --version
 step "Wine (x86-64 WoW64 via Box64)" "wine-" 900 "$HERMETIC" "$QEMU" "$ld" --library-path "$lib" "$rt/bin/box64" "$rt/wine/bin/wine" --version
 echo "All runtime self-test steps passed under qemu-aarch64 with host x86-64 libraries hidden (Linux, not Android)." | tee -a "$report"

@@ -17,9 +17,10 @@
 ## BUILD 2 risks (to be answered by the on-device self-test)
 
 * **glibc vs. Android seccomp — confirmed on a device.** Box64 was killed by SIGSYS (exit 159) on Android 16 because
-  glibc registers `rseq`, which Android's app filter blocks. Mitigation since 0.2.1-dev.1: `GLIBC_TUNABLES=glibc.pthread.rseq=0`
-  for every runtime process. If the on-device probe shows further blocked syscalls, the fallback is an
-  Android-patched glibc (Termux glibc-packages, which Winlator credits).
+  glibc registers `rseq`, which Android's app filter blocks. The tunable (0.2.1) was not enough: the device
+  also blocks `set_robust_list`, which glibc calls in every process. Since 0.2.2-dev.1 the runtime ships an
+  Android-patched glibc (runtime/glibc-android). If that still fails on a device, the next option is a Box64 built
+  against Android's own libc (bionic), as Winlator's bionic edition does.
 * **Kernel page size.** Some newer devices use 16 KB pages; Box64 and Wine must cope (Box64 supports
   non-4K page sizes on other platforms; untested here).
 * **Self-test proves execution only.** Passing all three steps does not mean the game renders; that needs the

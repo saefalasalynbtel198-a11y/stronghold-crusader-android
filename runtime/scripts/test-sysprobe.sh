@@ -12,17 +12,23 @@ gcc $F -o "$w/probe" "$here/sysprobe/shc-sysprobe.c"
 gcc -O2 -Wall -o "$w/sim" "$here/sysprobe/sim-android-filter.c"
 
 "$w/probe" --trap-selftest | tee "$w/1.txt"; grep -q "trap-selftest: PASS" "$w/1.txt"
-"$w/sim" "$w/probe" | tee "$w/2.txt"
+"$w/sim" rseq "$w/probe" | tee "$w/2.txt"
 grep -q "^rseq ([0-9]*): BLOCKED by seccomp" "$w/2.txt" || { echo "::error::probe did not report rseq as blocked"; exit 1; }
 grep -q "^probe done" "$w/2.txt"
 
 set +e
-"$w/sim" /bin/true; code=$?
+"$w/sim" rseq /bin/true; code=$?
 set -e
 echo "glibc program under rseq-trapping filter: exit $code"
 [ "$code" = 159 ] || { echo "::error::expected exit 159 (SIGSYS), got $code"; exit 1; }
 
-GLIBC_TUNABLES=glibc.pthread.rseq=0 "$w/sim" /usr/bin/python3 -c \
+GLIBC_TUNABLES=glibc.pthread.rseq=0 "$w/sim" rseq /usr/bin/python3 -c \
   "import threading; t=threading.Thread(target=lambda: print('thread ok')); t.start(); t.join()" | tee "$w/4.txt"
 grep -q "thread ok" "$w/4.txt"
-echo "seccomp diagnosis test passed: rseq trap reproduces exit 159; glibc.pthread.rseq=0 avoids it."
+# The device (Android 16) also blocks set_robust_list: there the tunable alone is NOT enough (device report 2).
+set +e
+GLIBC_TUNABLES=glibc.pthread.rseq=0 "$w/sim" android16 /bin/true; code=$?
+set -e
+echo "unpatched glibc + rseq tunable under the Android 16 blocked set: exit $code"
+[ "$code" = 159 ] || { echo "::error::expected exit 159 with unpatched glibc under the android16 set, got $code"; exit 1; }
+echo "seccomp diagnosis test passed: rseq trap reproduces exit 159; the tunable is insufficient under the Android 16 set."

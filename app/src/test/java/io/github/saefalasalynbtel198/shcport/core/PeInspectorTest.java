@@ -106,6 +106,24 @@ public class PeInspectorTest {
     }
 
     @Test
+    public void readsVersionStrings() {
+        // String structure: wLength, wValueLength, wType, UTF-16 key + NUL, pad to 4, UTF-16 value + NUL
+        java.io.ByteArrayOutputStream b = new java.io.ByteArrayOutputStream();
+        b.write(new byte[8], 0, 8);                       // filler so the struct starts DWORD-aligned at 8
+        b.write(new byte[] {0, 0, 5, 0, 1, 0}, 0, 6);     // wLength (unused), wValueLength=5, wType=1
+        byte[] key = "FileVersion".getBytes(java.nio.charset.StandardCharsets.UTF_16LE);
+        b.write(key, 0, key.length);
+        b.write(new byte[] {0, 0}, 0, 2);                 // NUL; 8+6+22+2 = 38 -> pad to 40
+        b.write(new byte[] {0, 0}, 0, 2);
+        byte[] val = "1.41".getBytes(java.nio.charset.StandardCharsets.UTF_16LE);
+        b.write(val, 0, val.length);
+        b.write(new byte[] {0, 0}, 0, 2);
+        java.util.Map<String, String> m = PeInspector.findVersionStrings(b.toByteArray());
+        assertEquals("1.41", m.get("FileVersion"));
+        assertTrue(!m.containsKey("ProductName"));
+    }
+
+    @Test
     public void hexEncodesBytes() {
         assertEquals("00ff10", PeInspector.hex(new byte[] {0, (byte) 0xFF, 0x10}));
     }

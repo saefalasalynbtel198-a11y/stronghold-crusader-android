@@ -58,19 +58,34 @@ public final class GameBuildClassifier {
         }
         if (pe.hasSection(".securom")) {
             return new Result(Support.UNSUPPORTED,
-                    "Disc-era build with SecuROM sections (file version " + pe.fileVersionString() + ")",
+                    "Disc-era build with SecuROM sections (file version " + pe.fileVersionString() + ", built " + pe.buildDate() + ")",
                     "This executable belongs to the SecuROM-protected 2008 disc release. Its copy "
                             + "protection relies on Windows kernel components that Wine cannot provide, "
                             + "so it is not a supported target. Install the DRM-free Stronghold Crusader "
                             + "HD 1.41 from GOG or Steam and import that folder instead.");
         }
-        if (pe.fileVersion != null && pe.fileVersion[0] == 1 && pe.fileVersion[1] >= 4) {
+        String textVersion = pe.versionStrings.get("FileVersion");
+        if (looksLikeHd14(pe.fileVersion, textVersion)) {
             return new Result(Support.LIKELY_SUPPORTED,
-                    "Stronghold Crusader HD " + pe.fileVersionString() + " (unverified hash)",
-                    "Version resource indicates an HD 1.4x build, but this exact file has not been "
-                            + "verified yet. Launch is allowed; please report results.");
+                    "Stronghold Crusader HD " + describeVersion(pe, textVersion) + " (unverified hash)",
+                    "Version information indicates an HD 1.4x build, but this exact file is not in the verified "
+                            + "list yet. Please send its build fingerprint (Copy build fingerprint) so it can be verified.");
         }
-        return new Result(Support.UNKNOWN, "Unrecognised build (file version " + pe.fileVersionString() + ")",
-                "Valid 32-bit Windows executable, but not a build the port has been tested with.");
+        return new Result(Support.UNKNOWN,
+                "DRM-free build, not yet verified (" + describeVersion(pe, textVersion) + ", built " + pe.buildDate() + ")",
+                "No copy protection sections were found, but this exact executable has not been verified. Use "
+                        + "Copy build fingerprint and send it to the developers so the build can be identified.");
+    }
+
+    static boolean looksLikeHd14(int[] fixed, String text) {
+        if (fixed != null && fixed[0] == 1 && fixed[1] >= 4) return true;
+        if (text == null) return false;
+        String t = text.replace(" ", "").replace(',', '.');
+        return t.startsWith("1.4");
+    }
+
+    private static String describeVersion(PeInfo pe, String textVersion) {
+        String fixed = "file version " + pe.fileVersionString();
+        return textVersion == null || textVersion.isEmpty() ? fixed : fixed + ", text version \"" + textVersion + "\"";
     }
 }
