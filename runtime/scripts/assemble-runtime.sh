@@ -31,11 +31,17 @@ chmod 0755 "$stage/lib/aarch64-linux-gnu/ld-linux-aarch64.so.1"
 echo "patched glibc: $n shared objects installed"
 tar -xJf "$o/downloads/$WINE_ASSET" -C "$stage/wine" --strip-components=1
 unzip -q -j -o "$o/downloads/cnc-ddraw-${CNC_DDRAW_TAG}.zip" 'ddraw.dll' -d "$stage/cnc-ddraw"
+# Wine: use "<prefix>/.wineserver<uid>" instead of /tmp (absent on Android). See patch-wine-tmpdir.py.
+python3 -I "$here/scripts/patch-wine-tmpdir.py" "$stage/wine" | tee "$o/wine-tmpdir-patch.txt"
+# Windows smoke-test programs (BUILD 3 phase 2).
+mkdir -p "$stage/win"
+install -m 0644 "$o/win/shc-pe-smoke-i686.exe" "$o/win/shc-pe-smoke-x86_64.exe" "$stage/win/"
 
 # Licences and source pointers (Wine is LGPL: point to the exact source).
 cp -a "$o/licenses/." "$stage/licenses/"
 cp "$here/glibc-android/android-seccomp.patch" "$stage/licenses/glibc-android-seccomp.patch"
 cp "$here/glibc-android/README.md" "$stage/licenses/glibc-android-README.md"
+{ echo "Wine modifications in this package (LGPL-2.1-or-later):"; sed -n '2,15p' "$here/scripts/patch-wine-tmpdir.py"; cat "$o/wine-tmpdir-patch.txt"; } > "$stage/licenses/WINE-MODIFICATIONS.txt"
 mkdir -p "$stage/licenses/debian"
 ( cd "$o/userland/usr/share/doc" && for d in *; do [ -f "$d/copyright" ] && cp "$d/copyright" "$stage/licenses/debian/$d.copyright"; done ) || true
 cat > "$stage/licenses/SOURCES.txt" <<SRC
@@ -51,7 +57,7 @@ SRC
 
 echo "$version" > "$stage/RUNTIME_VERSION"
 
-for f in bin/box64 bin/shc-sysprobe bin/shc-glibctest lib/aarch64-linux-gnu/ld-linux-aarch64.so.1 lib/x86_64-linux-gnu/libgcc_s.so.1 wine/bin/wine cnc-ddraw/ddraw.dll RUNTIME_VERSION; do
+for f in bin/box64 bin/shc-sysprobe bin/shc-glibctest win/shc-pe-smoke-i686.exe win/shc-pe-smoke-x86_64.exe lib/aarch64-linux-gnu/ld-linux-aarch64.so.1 lib/x86_64-linux-gnu/libgcc_s.so.1 wine/bin/wine cnc-ddraw/ddraw.dll RUNTIME_VERSION; do
   [ -e "$stage/$f" ] || { echo "::error::missing $f in staged runtime"; exit 1; }
 done
 

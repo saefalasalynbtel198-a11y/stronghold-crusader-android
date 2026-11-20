@@ -45,6 +45,7 @@ public final class RuntimeActivity extends Activity {
     private TextView report;
     private Button install;
     private Button selfTest;
+    private Button wineTest;
     private volatile boolean busy;
 
     @Override
@@ -60,7 +61,8 @@ public final class RuntimeActivity extends Activity {
         col.addView(status);
         install = Ui.button(this, "Install runtime package…", v -> pick());
         selfTest = Ui.button(this, "Run self-test", v -> runSelfTest());
-        col.addView(Ui.row(this, install, selfTest,
+        wineTest = Ui.button(this, "Run Wine tests (BUILD 3)", v -> runWineTests());
+        col.addView(Ui.row(this, install, selfTest, wineTest,
                 Ui.button(this, "Copy report", v -> copyReport()),
                 Ui.button(this, "Remove runtime", v -> removeRuntime())));
         report = Ui.body(this, "");
@@ -75,6 +77,7 @@ public final class RuntimeActivity extends Activity {
         status.setText(rt.looksInstalled() ? "Installed: " + v : "Not installed.");
         install.setEnabled(!busy);
         selfTest.setEnabled(!busy && rt.looksInstalled());
+        wineTest.setEnabled(!busy && rt.looksInstalled() && rt.peSmoke32().isFile());
     }
 
     private void pick() {
@@ -199,6 +202,19 @@ public final class RuntimeActivity extends Activity {
         sb.append(String.format(Locale.ROOT, "Result: %d of %d required steps passed.\n", passed, required));
         if (passed < required) sb.append("The runtime cannot run on this device yet. Please send this whole report.\n");
         return sb.toString();
+    }
+
+    private void runWineTests() {
+        setBusy(true);
+        report.setText("Running Wine tests. The first run creates the Wine prefix and can take several minutes…");
+        new Thread(() -> {
+            GameInstallation game = GameInstallation.inspect(app.paths().gameDir());
+            final String text = new WineTestRunner(app.paths()).run(game, m -> main.post(() -> status.setText(m)));
+            main.post(() -> {
+                setBusy(false);
+                report.setText(text);
+            });
+        }, "wine-tests").start();
     }
 
     private static Thread drain(final InputStream in, final ByteArrayOutputStream out) {

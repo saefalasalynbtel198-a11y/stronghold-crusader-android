@@ -9,6 +9,8 @@ Last updated: 2026-11-20 (BUILD 2 device report 2: glibc patched for Android sec
 | 1 | Repository and previous BUILD audit | COMPLETED | `main` held only the initial commit (README, .gitignore); BUILD 1/2 had never been pushed; no PRs, runs or releases. Branch `claude/access-check` (1 temporary file) left untouched. |
 | 2 | BUILD 1 — launcher, core, CI | COMPLETED (merge pending) | PR #1; run [44613894366](https://github.com/saefalasalynbtel198-a11y/stronghold-crusader-android/actions/runs/44613894366) green: 33 unit tests, lint, APK verified, emulator smoke test passed. Merge into `main` needs the owner (agent merge was refused by its permission policy). |
 | 3 | BUILD 2 — runtime package, installer, on-device self-test | FAILED on device twice → fix IN PROGRESS | Report 1: Box64 SIGSYS. Report 2 (0.2.1): rseq tunable insufficient; probe shows set_robust_list, faccessat2 and others blocked. Fix: Android-patched glibc (0.2.2-dev.1 / runtime r3), awaiting CI and device re-test. |
+| 3d | BUILD 2 device acceptance | COMPLETED (owner-reported) | Owner, 2026-11-20, Xiaomi 25053PC47G Android 16: patched glibc, threads/robust mutex/fork, Box64 v0.3.8, `wine --version` PASS with runtime r3 / app 0.2.2-dev.1. |
+| 5a | BUILD 3 phase 1–2: Wine prefix + Windows PE smoke test | IN PROGRESS | Branch `feature/build3-wine`, app 0.3.0-dev.1, runtime r4. Device test pending. |
 | 4 | Complete Android application (AR/EN, themes, game launch screen) | NOT STARTED | |
 | 5 | Runtime integration: display server, Wine prefix, cnc-ddraw, audio | NOT STARTED | Needs BUILD 2 device result |
 | 6 | Touch controls injected into the game | NOT STARTED | Mapper done and unit-tested; injection needs milestone 5 |
@@ -93,6 +95,20 @@ Last updated: 2026-11-20 (BUILD 2 device report 2: glibc patched for Android sec
 * Requirement found for BUILD 3: every glibc child process must be started via the packaged loader.
 * Also (task 3): build fingerprint (text version strings, PE date, sections, hashes) + *Copy build fingerprint*;
   unverified DRM-free builds are labelled as such and not auto-accepted. GOG executable hashes still needed.
+
+## Milestone 5a — BUILD 3 phase 1–2 (0.3.0-dev.1, runtime r4)
+
+* Found by reading upstream Wine 11.0 source: wineserver (`server/request.c:647`) and ntdll
+  (`dlls/ntdll/unix/server.c:1311`) hard-code `/tmp/.wine-%u`; only `__ANDROID__` builds use `<prefix>/.wineserver`.
+  Android apps have no `/tmp`. Both sites run with the prefix as current directory, so the package replaces the
+  13-byte pattern with the same-length `.wineserver%u` (`patch-wine-tmpdir.py`, exactly 2 files, 1 hit each).
+* Box64 must re-execute itself for x86-64 children (wineserver). It is now linked with a placeholder PT_INTERP that
+  the app replaces at install time with the packaged loader path (`ElfInterp`), so every child runs on patched glibc.
+* New: Windows PE smoke programs (mingw, 32-bit and 64-bit): file I/O, %TEMP%, CreateProcess + exit code, exit 42.
+* App: *Run Wine tests*: Box64 direct exec → `wineboot --init` → wineserver dir in prefix → PE smoke 64-bit →
+  PE smoke 32-bit (WoW64) → game executable launch attempt [diagnostic, no display] → `wineserver -k`.
+* GOG executables (owner fingerprints): no public hash record; build date 2012-10-02 and version strings 1,1,0,1
+  match GOG's 2012 HD release, not 1.41(a) (GOGDB). Labelled "reported by owner, not independently verified", UNKNOWN.
 
 ## Remaining blockers (owner action)
 

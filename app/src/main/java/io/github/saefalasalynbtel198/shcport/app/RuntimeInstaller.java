@@ -11,7 +11,9 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.Locale;
 
+import io.github.saefalasalynbtel198.shcport.core.ElfInterp;
 import io.github.saefalasalynbtel198.shcport.core.RuntimeArchive;
+import io.github.saefalasalynbtel198.shcport.core.RuntimeLayout;
 
 /**
  * Installs a runtime package (shc-runtime-*.zip from the runtime-components workflow) selected by the
@@ -61,6 +63,13 @@ public final class RuntimeInstaller {
             RuntimeArchive.extract(tmpZip, staging, (path, bytes) -> {
                 if ((bytes >> 20) % 25 == 0) progress.update(String.format(Locale.ROOT, "Extracting… %d MB", bytes >> 20));
             });
+            // Point Box64's ELF interpreter at the packaged glibc loader at its final location (runtime r4+).
+            File box64 = new File(staging, "bin/box64");
+            String interp = ElfInterp.read(box64);
+            if (interp.startsWith(ElfInterp.PLACEHOLDER_PREFIX)) {
+                progress.update("Linking Box64 to the patched glibc loader…");
+                ElfInterp.patch(box64, new RuntimeLayout(target).loader().getPath());
+            }
             if (target.exists()) AppPaths.deleteTree(target, internal);
             if (!staging.renameTo(target)) throw new IOException("Cannot move runtime into place");
             return m.version;

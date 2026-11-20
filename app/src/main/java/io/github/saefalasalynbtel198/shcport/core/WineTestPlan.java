@@ -1,0 +1,102 @@
+package io.github.saefalasalynbtel198.shcport.core;
+
+import java.io.File;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+
+/**
+ * BUILD 3 phase 1–2 on-device test: Wine prefix initialisation, wineserver, Windows process creation
+ * (32-bit WoW64 and 64-bit PE smoke programs) and a launch attempt of the imported game executable.
+ *
+ * <p>Box64 is executed directly (its PT_INTERP points at the packaged glibc loader, see {@link ElfInterp}),
+ * so the processes it re-executes for x86-64 children — wineserver and Wine helpers — also start on
+ * the Android-patched glibc. The game step is diagnostic: graphics output is not available until phase 3.
+ */
+public final class WineTestPlan {
+
+    public enum Check { NONE, PREFIX_CREATED, WINESERVER_DIR }
+
+    public static final class Step {
+        public final String name;
+        public final List<String> argv;
+        public final Map<String, String> env;
+        public final File cwd;
+        public final long timeoutMs;
+        /** Expected exit code, or null if any exit code is acceptable. */
+        public final Integer expectedExit;
+        /** Text the output must contain, or null. */
+        public final String expectedOutput;
+        public final Check postCheck;
+        public final boolean required;
+
+        Step(String name, List<String> argv, Map<String, String> env, File cwd, long timeoutMs,
+             Integer expectedExit, String expectedOutput, Check postCheck, boolean required) {
+            this.name = name;
+            this.argv = Collections.unmodifiableList(argv);
+            this.env = Collections.unmodifiableMap(env);
+            this.cwd = cwd;
+            this.timeoutMs = timeoutMs;
+            this.expectedExit = expectedExit;
+            this.expectedOutput = expectedOutput;
+            this.postCheck = postCheck;
+            this.required = required;
+        }
+
+        public boolean outputOk(int exit, String output) {
+            if (exit < 0) return false; // timed out or could not start
+            if (expectedExit != null && exit != expectedExit) return false;
+            return expectedOutput == null || output.contains(expectedOutput);
+        }
+    }
+
+    private WineTestPlan() {}
+
+    /**
+     * @param gameExe game executable file name to attempt, or null to skip that step (no game imported,
+     *                or the build classifier does not allow a launch attempt)
+     */
+    public static List<Step> steps(RuntimeLayout rt, File prefixDir, File tmpDir, File gameDir, String gameExe) {
+        Map<String, String> env = wineEnv(rt, prefixDir, tmpDir);
+        String box64 = rt.box64().getPath();
+        String wine = rt.wine().getPath();
+        String wineserver = new File(rt.wineBinDir(), "wineserver").getPath();
+        File driveC = new File(prefixDir, "drive_c");
+        List<Step> s = new ArrayList<>();
+        s.add(new Step("Box64 direct exec (PT_INTERP = patched glibc loader)", Arrays.asList(box64, "--version"),
+                env, rt.root, 30_000, 0, "Box64", Check.NONE, true));
+        s.add(new Step("wineboot --init (create Wine prefix)", Arrays.asList(box64, wine, "wineboot", "--init"),
+                env, rt.root, 20 * 60_000, 0, null, Check.PREFIX_CREATED, true));
+        s.add(new Step("wineserver directory inside the prefix", Arrays.asList(box64, wineserver, "-p5"),
+                env, rt.root, 60_000, null, null, Check.WINESERVER_DIR, true));
+        s.add(new Step("Windows PE smoke test, 64-bit", Arrays.asList(box64, wine, rt.peSmoke64().getPath(), "C:\\"),
+                env, driveC, 10 * 60_000, 42, "pe-smoke ok", Check.NONE, true));
+        s.add(new Step("Windows PE smoke test, 32-bit (WoW64, like the game)",
+                Arrays.asList(box64, wine, rt.peSmoke32().getPath(), "C:\\"),
+                env, driveC, 10 * 60_000, 42, "pe-smoke ok", Check.NONE, true));
+        if (gameExe != null) {
+            Map<String, String> gameEnv = new LinkedHashMap<>(env);
+            gameEnv.put("WINEDEBUG", "err+all,fixme-all,+loaddll");
+            s.add(new Step("Game executable launch attempt (diagnostic: no display until phase 3)",
+                    Arrays.asList(box64, wine, "D:\\" + gameExe), gameEnv, gameDir, 90_000,
+                    null, null, Check.NONE, false));
+        }
+        s.add(new Step("wineserver -k (stop Wine)", Arrays.asList(box64, wineserver, "-k"),
+                env, rt.root, 60_000, null, null, Check.NONE, false));
+        return s;
+    }
+
+    /** Runtime environment for Wine; DISPLAY is deliberately empty until the display server exists. */
+    public static Map<String, String> wineEnv(RuntimeLayout rt, File prefixDir, File tmpDir) {
+        Map<String, String> env = RuntimeProbe.baseEnv(rt, prefixDir, tmpDir);
+        env.put("WINEDLLOVERRIDES", "mscoree,mshtml=d;winemenubuilder.exe=d");
+        env.put("WINEDEBUG", "err+all,fixme-all");
+        env.put("DISPLAY", "");
+        env.put("BOX64_NOBANNER", "1");
+        env.put("BOX64_LOG", "0");
+        return env;
+    }
+}
