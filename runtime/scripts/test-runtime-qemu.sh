@@ -15,7 +15,7 @@ rt="$WORK/runtime"
 rm -rf "$rt"
 
 core="$repo/app/src/main/java/io/github/saefalasalynbtel198/shcport/core"
-javac -d "$WORK/classes" "$core/RuntimeArchive.java" "$core/ElfInterp.java" "$core/RuntimeLayout.java" \
+javac -d "$WORK/classes" -sourcepath "$repo/app/src/main/java" "$core/RuntimeArchive.java" "$core/ElfInterp.java" "$core/RuntimeLayout.java" \
   "$repo/scripts/ci/ExtractRuntime.java"
 java -cp "$WORK/classes" ExtractRuntime "$ZIP" "$rt"
 

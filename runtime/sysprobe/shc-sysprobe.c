@@ -208,6 +208,9 @@ static void probe_all(void) {
     PROBE("setns (bad fd)", SYS_setns, -1, 0, 0, 0, 0, 0);
     PROBE("io_uring_setup (invalid)", SYS_io_uring_setup, 0, 0, 0, 0, 0, 0);
     PROBE("set_mempolicy_home_node (invalid)", SYS_set_mempolicy_home_node, 0, 0, 0, 0, 0, 0);
+    /* wineserver accepts its clients with accept(); bionic (and Android's filter) only has accept4 */
+    PROBE("accept (bad fd)", SYS_accept, -1, 0, 0, 0, 0, 0);
+    PROBE("accept4 (bad fd)", SYS_accept4, -1, 0, 0, 0, 0, 0);
     closefd = 1;
     PROBE("memfd_create", SYS_memfd_create, "shc", 1 /*MFD_CLOEXEC*/, 0, 0, 0, 0);
     PROBE("pidfd_open", SYS_pidfd_open, pid, 0, 0, 0, 0, 0);

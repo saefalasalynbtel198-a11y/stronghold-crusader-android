@@ -41,6 +41,27 @@ diff -ruN a/sysdeps/nptl/dl-tunables.list b/sysdeps/nptl/dl-tunables.list
      }
      stack_hugetlb {
        type: INT_32
+diff -ruN a/sysdeps/unix/sysv/linux/accept.c b/sysdeps/unix/sysv/linux/accept.c
+--- a/sysdeps/unix/sysv/linux/accept.c
++++ b/sysdeps/unix/sysv/linux/accept.c
+@@ -22,10 +22,14 @@
+ int
+ __libc_accept (int fd, __SOCKADDR_ARG addr, socklen_t *len)
+ {
+-#ifdef __ASSUME_ACCEPT_SYSCALL
+-  return SYSCALL_CANCEL (accept, fd, addr.__sockaddr__, len);
+-#elif defined __ASSUME_ACCEPT4_SYSCALL
++  /* Android: the app seccomp filter only allows accept4 on arm64 (bionic
++     implements accept with it); the accept syscall is trapped with SIGSYS and
++     kills the process (seen as wineserver dying on its first connection).
++     accept4 with flags 0 is the same operation, so prefer it.  */
++#if defined __ASSUME_ACCEPT4_SYSCALL
+   return SYSCALL_CANCEL (accept4, fd, addr.__sockaddr__, len, 0);
++#elif defined __ASSUME_ACCEPT_SYSCALL
++  return SYSCALL_CANCEL (accept, fd, addr.__sockaddr__, len);
+ #else
+   return SOCKETCALL_CANCEL (accept, fd, addr.__sockaddr__, len);
+ #endif
 diff -ruN a/sysdeps/unix/sysv/linux/clone-internal.c b/sysdeps/unix/sysv/linux/clone-internal.c
 --- a/sysdeps/unix/sysv/linux/clone-internal.c
 +++ b/sysdeps/unix/sysv/linux/clone-internal.c
