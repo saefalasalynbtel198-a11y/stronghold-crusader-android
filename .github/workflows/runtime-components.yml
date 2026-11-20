@@ -41,6 +41,10 @@ jobs:
         run: bash runtime/scripts/build-sysprobe.sh
       - name: Build glibc test program (aarch64)
         run: aarch64-linux-gnu-gcc -O2 -Wall -Werror -pthread -o runtime/out/bin/shc-glibctest runtime/sysprobe/shc-glibctest.c
+      - name: Build process watcher (aarch64, ptrace diagnostic)
+        run: aarch64-linux-gnu-gcc -O2 -Wall -Wextra -Werror -o runtime/out/bin/shc-ptrace-watch runtime/sysprobe/shc-ptrace-watch.c
+      - name: Test process watcher (Linux x86-64; seccomp SIGSYS and fatal-signal reporting)
+        run: bash runtime/scripts/test-ptrace-watch.sh
       - name: Seccomp diagnosis test (Linux x86-64; reproduces exit 159 and the rseq fix)
         run: bash runtime/scripts/test-sysprobe.sh
       - uses: actions/upload-artifact@v4
@@ -162,7 +166,7 @@ jobs:
           path: runtime/out
       - name: Restore executable bit (artifacts do not keep permissions)
         run: |
-          chmod 0755 runtime/out/bin/box64 runtime/out/bin/shc-sysprobe runtime/out/bin/shc-glibctest
+          chmod 0755 runtime/out/bin/box64 runtime/out/bin/shc-sysprobe runtime/out/bin/shc-glibctest runtime/out/bin/shc-ptrace-watch
           find runtime/out/glibc-aarch64 -name 'ld-linux-aarch64.so.1' -exec chmod 0755 {} +
       - name: Install tools
         run: |
@@ -206,4 +210,37 @@ jobs:
         with:
           name: runtime-qemu-selftest
           path: ${{ runner.temp }}/rt-test/qemu-selftest.txt
+          if-no-files-found: warn
+
+  wine-box64-qemu:
+    name: Box64 + Wine prefix init under qemu-aarch64 (device path, Linux not Android)
+    needs: package
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download runtime package
+        uses: actions/download-artifact@v4
+        with:
+          name: shc-runtime-package
+          path: runtime/out
+      - name: Set up JDK 17 (for the app's extractor)
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Install qemu-user-static
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends qemu-user-static binfmt-support
+      - name: wineboot --init through Box64 (auto-started wineserver, then foreground wineserver)
+        run: bash runtime/scripts/test-box64-wine-qemu.sh runtime/out/shc-runtime-*.zip "$RUNNER_TEMP/bw"
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: box64-wine-qemu-logs
+          path: |
+            ${{ runner.temp }}/bw/*.log
+            ${{ runner.temp }}/bw/*.txt
           if-no-files-found: warn

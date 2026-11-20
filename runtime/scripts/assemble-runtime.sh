@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Combines the CI-built/fetched inputs into the runtime package imported by the app.
-# Inputs (under runtime/out/): bin/box64, bin/shc-sysprobe, bin/shc-glibctest, glibc-aarch64/, x64lib/, licenses/, downloads/<wine>.tar.xz, downloads/cnc-ddraw-*.zip, userland/ (+ userland-lib/)
+# Inputs (under runtime/out/): bin/box64, bin/shc-sysprobe, bin/shc-glibctest, bin/shc-ptrace-watch, glibc-aarch64/, x64lib/, licenses/, downloads/<wine>.tar.xz, downloads/cnc-ddraw-*.zip, userland/ (+ userland-lib/)
 # Output: runtime/out/shc-runtime-<version>.zip  (+ .sha256)
 set -euo pipefail
 here="$(cd "$(dirname "$0")/.." && pwd)"
@@ -15,6 +15,7 @@ mkdir -p "$stage/bin" "$stage/lib/x86_64-linux-gnu" "$stage/wine" "$stage/cnc-dd
 install -m 0755 "$o/bin/box64" "$stage/bin/box64"
 install -m 0755 "$o/bin/shc-sysprobe" "$stage/bin/shc-sysprobe"
 install -m 0755 "$o/bin/shc-glibctest" "$stage/bin/shc-glibctest"
+install -m 0755 "$o/bin/shc-ptrace-watch" "$stage/bin/shc-ptrace-watch"
 cp -a "$o/x64lib/." "$stage/lib/x86_64-linux-gnu/"
 cp -a "$o/userland-lib" "$stage/lib/aarch64-linux-gnu"
 # Replace Debian's glibc with the Android-patched build (runtime/glibc-android). Only ELF shared objects are
@@ -57,7 +58,7 @@ SRC
 
 echo "$version" > "$stage/RUNTIME_VERSION"
 
-for f in bin/box64 bin/shc-sysprobe bin/shc-glibctest win/shc-pe-smoke-i686.exe win/shc-pe-smoke-x86_64.exe lib/aarch64-linux-gnu/ld-linux-aarch64.so.1 lib/x86_64-linux-gnu/libgcc_s.so.1 wine/bin/wine cnc-ddraw/ddraw.dll RUNTIME_VERSION; do
+for f in bin/box64 bin/shc-sysprobe bin/shc-glibctest bin/shc-ptrace-watch win/shc-pe-smoke-i686.exe win/shc-pe-smoke-x86_64.exe lib/aarch64-linux-gnu/ld-linux-aarch64.so.1 lib/x86_64-linux-gnu/libgcc_s.so.1 wine/bin/wine cnc-ddraw/ddraw.dll RUNTIME_VERSION; do
   [ -e "$stage/$f" ] || { echo "::error::missing $f in staged runtime"; exit 1; }
 done
 
