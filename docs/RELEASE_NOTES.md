@@ -1,5 +1,15 @@
 # Release notes
 
+## 0.3.0-dev.1 — BUILD 3 phase 1–2 (development build, not a playable game)
+
+* Requires runtime package **r4** (remove r3 first). r4 adds: Wine patched to keep its wineserver directory inside
+  the prefix (Android has no `/tmp`), Box64 whose ELF interpreter is set at install time to the packaged patched
+  glibc loader (so Wine's child processes also run on it), and two Windows PE smoke programs (32- and 64-bit).
+* Runtime screen: *Run Wine tests (BUILD 3)* — create the Wine prefix, check the wineserver directory, run the PE
+  smoke programs (file I/O, %TEMP%, child process, exit code 42), then one diagnostic attempt at the game
+  executable without a display. Report saved to the app's logs.
+* Start Game stays disabled: there is no display path yet (phase 3).
+
 ## 0.2.2-dev.1 — BUILD 2 fix 2 (development build, not a playable game)
 
 * Runtime r3 ships glibc 2.41 rebuilt with an Android seccomp patch: unmodified glibc was killed by SIGSYS on

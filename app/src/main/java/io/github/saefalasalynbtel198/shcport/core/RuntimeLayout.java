@@ -25,6 +25,8 @@ public final class RuntimeLayout {
     public File glibctest() { return new File(root, "bin/shc-glibctest"); }
     public File wine() { return new File(root, "wine/bin/wine"); }
     public File wineBinDir() { return new File(root, "wine/bin"); }
+    public File peSmoke32() { return new File(root, "win/shc-pe-smoke-i686.exe"); }
+    public File peSmoke64() { return new File(root, "win/shc-pe-smoke-x86_64.exe"); }
     public File cncDdraw() { return new File(root, "cnc-ddraw/ddraw.dll"); }
     public File versionFile() { return new File(root, "RUNTIME_VERSION"); }
 

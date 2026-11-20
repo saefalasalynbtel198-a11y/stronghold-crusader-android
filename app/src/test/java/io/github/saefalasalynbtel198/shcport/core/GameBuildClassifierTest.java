@@ -65,6 +65,17 @@ public class GameBuildClassifierTest {
     }
 
     @Test
+    public void ownerReportedGogFingerprintsStayUnknown() {
+        PeInfo p = new PeInfo(PeInfo.MACHINE_I386, 1349170523L, Arrays.asList(".text", ".rdata", ".data", ".rsrc"),
+                new int[] {1, 0, 0, 1}, 8637064, "f80d298f0d91d91c55f4d3260a7b810c6a4129b6",
+                "D32E983D52A4F6DD7EF10007872513BE6CB87261B6C0C69660BEBC1DF411E89E");
+        GameBuildClassifier.Result r = GameBuildClassifier.classify(p);
+        assertEquals(GameBuildClassifier.Support.UNKNOWN, r.support);
+        assertTrue(r.label.contains("not independently verified"));
+        assertTrue(r.canAttemptLaunch());
+    }
+
+    @Test
     public void otherBuildsAreUnknown() {
         GameBuildClassifier.Result r = GameBuildClassifier.classify(
                 pe(PeInfo.MACHINE_I386, "abc", new int[] {1, 2, 0, 0}, ".text"));

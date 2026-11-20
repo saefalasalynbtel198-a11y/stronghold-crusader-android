@@ -94,14 +94,49 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+      - name: Install mingw-w64
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends gcc-mingw-w64-i686 gcc-mingw-w64-x86-64 file
       - name: Fetch and verify
         run: bash runtime/scripts/fetch-components.sh
+      - name: Build Windows smoke-test programs
+        run: bash runtime/scripts/build-pe-smoke.sh
       - uses: actions/upload-artifact@v4
         with:
           name: runtime-inputs
           path: runtime/out/
           if-no-files-found: error
           retention-days: 7
+
+  wine-native:
+    name: Wine smoke test (native x86-64 Linux, patched wineserver dir)
+    needs: [inputs]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download Wine and smoke-test programs
+        uses: actions/download-artifact@v4
+        with:
+          name: runtime-inputs
+          path: runtime/out
+      - name: Install Wine runtime dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libfreetype6 libfontconfig1 libx11-6 libxext6 libxrender1 xz-utils
+      - name: Run Wine prefix init and PE smoke tests
+        run: bash runtime/scripts/test-wine-native.sh
+      - name: Upload Wine test log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wine-native-test
+          # logs only: the prefix contains dosdevices/z: -> / which the uploader would try to walk
+          path: |
+            ${{ runner.temp }}/wine-native/*.log
+            ${{ runner.temp }}/wine-native/*.txt
+          if-no-files-found: warn
 
   package:
     name: Assemble runtime package

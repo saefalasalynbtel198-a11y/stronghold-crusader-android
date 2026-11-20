@@ -18,7 +18,8 @@ cmake -S "$work/box64" -B "$work/box64-build" -G Ninja \
   -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc \
   -DCMAKE_ASM_COMPILER=aarch64-linux-gnu-gcc \
   -DARM_DYNAREC=ON \
-  -DARM64=1
+  -DARM64=1 \
+  -DCMAKE_EXE_LINKER_FLAGS="-Wl,--dynamic-linker=$SHC_INTERP_PLACEHOLDER"
 cmake --build "$work/box64-build" --parallel
 cp "$work/box64-build/box64" "$out/bin/box64"
 aarch64-linux-gnu-strip --strip-debug "$out/bin/box64"
@@ -31,5 +32,8 @@ cp -a "$work/box64/x64lib/." "$out/x64lib/"
 [ -e "$out/x64lib/libgcc_s.so.1" ] || { echo "::error::libgcc_s.so.1 missing from box64 x64lib"; ls "$out/x64lib"; exit 1; }
 ls -l "$out/x64lib"
 file "$out/bin/box64" | tee "$out/box64.file.txt"
+interp=$(aarch64-linux-gnu-readelf -p .interp "$out/bin/box64" | sed -n 's/^ *\[ *0\] *//p')
+[ "$interp" = "$SHC_INTERP_PLACEHOLDER" ] || { echo "::error::box64 PT_INTERP is '$interp', expected the placeholder"; exit 1; }
+echo "box64 PT_INTERP placeholder: ${#interp} bytes"
 grep -q "ARM aarch64" "$out/box64.file.txt"
 echo "box64 $BOX64_REF built: $(stat -c %s "$out/bin/box64") bytes"
