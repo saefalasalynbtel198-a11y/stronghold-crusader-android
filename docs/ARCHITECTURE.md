@@ -45,11 +45,27 @@ the app supplies a Windows-compatible environment, touch input, storage and life
 |---|---|---|
 | Language | Java 17, platform APIs only | Smallest dependency surface; the core is plain Java so it is unit-testable on any JVM |
 | minSdk | 26 (Android 8.0) | `java.nio.file`, adaptive icons; Box64/Wine-on-Android stacks target 8.0+ |
-| target/compileSdk | 35 | Current; revisit in BUILD 3 if executing the runtime from app storage requires targetSdk 28 for sideloaded builds |
+| targetSdk | **28** (from BUILD 2; compileSdk 35) | Required to execute the runtime from app storage — see below. Sideload distribution only |
 | ABIs | none in BUILD 1; **arm64-v8a only** once the runtime lands | Box64's dynarec targets ARM64; 32-bit ARM devices cannot run the stack |
 | Graphics | cnc-ddraw OpenGL renderer → Mesa/Android GLES | The game is 2D DirectDraw; Vulkan adds nothing here |
 | Permissions | none | Import via Storage Access Framework, data in app-specific storage |
 | Storage | game data in app-specific external storage, runtime/prefix in internal storage | Game data is ~1.2 GB; symlinks and exec bits need internal storage |
+
+## Executing the runtime on Android
+
+Android's documented behaviour for apps targeting API 29+: untrusted apps cannot call `execve()` on files in
+their home directory, and code should only be loaded from the APK. The SELinux policy change behind it also
+removes `execute` on `app_data_file` (which blocks `dlopen()`/`PROT_EXEC` mappings of those files) for every
+untrusted app domain except the targetSdk ≤ 28 ones. The runtime is hundreds of files (glibc
+loader, ARM64 libraries, Wine) that the glibc loader maps executable from app storage, so it cannot run under
+targetSdk ≥ 29. Termux stays on targetSdk 28 for the same reason.
+
+Decision: **targetSdk 28**, with the runtime installed into internal app storage from a separate package
+(`shc-runtime-*.zip`). Consequences: not publishable on Google Play (sideload/GitHub Releases only, which is the
+project's distribution model anyway); lint `ExpiredTargetSdkVersion` is disabled deliberately.
+
+Every runtime command is started as `lib/aarch64-linux-gnu/ld-linux-aarch64.so.1 --library-path … bin/box64 …`
+because Android has no `/lib/ld-linux-aarch64.so.1` for glibc programs.
 
 ## Input model (preserves original mechanics)
 
@@ -61,7 +77,7 @@ events; nothing in the game is simplified or replaced.
 | Build | Scope | Status |
 |---|---|---|
 | BUILD 1 (0.1.0-dev.1) | Installable app: import, validation, version detection, saves, touch-mapping test surface, diagnostics, CI | Code complete; CI run pending repository access |
-| BUILD 2 | Runtime package assembled in CI and installed on device; `box64 --version` and `wine --version` run on device | Box64 cross-build + Wine/cnc-ddraw fetch scripted; packaging not started |
+| BUILD 2 (0.2.0-dev.1) | Runtime package assembled in CI, installed from the app, on-device self-test: glibc loader → `box64 --version` → `box64 wine --version` | Code complete on `feature/build2-runtime`; needs CI run + device test |
 | BUILD 3 | X server + launch; game window renders | Not started |
 | BUILD 4 | Touch input injected into Wine; audio | Not started |
 | BUILD 5 | Performance, lifecycle (pause/resume of Wine), stability | Not started |

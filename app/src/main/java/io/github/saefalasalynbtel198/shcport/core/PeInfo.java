@@ -1,8 +1,10 @@
 package io.github.saefalasalynbtel198.shcport.core;
 
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 
 /** Facts read from a Windows PE executable header. Immutable. */
 public final class PeInfo {
@@ -20,9 +22,16 @@ public final class PeInfo {
     public final long fileSize;
     public final String sha1;
     public final String sha256;
+    /** Text entries of the version resource (FileVersion, ProductVersion, ProductName, ...), may be empty. */
+    public final Map<String, String> versionStrings;
 
     public PeInfo(int machine, long timeDateStamp, List<String> sectionNames, int[] fileVersion,
                   long fileSize, String sha1, String sha256) {
+        this(machine, timeDateStamp, sectionNames, fileVersion, fileSize, sha1, sha256, new LinkedHashMap<String, String>());
+    }
+
+    public PeInfo(int machine, long timeDateStamp, List<String> sectionNames, int[] fileVersion,
+                  long fileSize, String sha1, String sha256, Map<String, String> versionStrings) {
         this.machine = machine;
         this.timeDateStamp = timeDateStamp;
         this.sectionNames = Collections.unmodifiableList(sectionNames);
@@ -30,6 +39,31 @@ public final class PeInfo {
         this.fileSize = fileSize;
         this.sha1 = sha1;
         this.sha256 = sha256;
+        this.versionStrings = Collections.unmodifiableMap(new LinkedHashMap<>(versionStrings));
+    }
+
+    /** UTC build date from the PE header, yyyy-MM-dd. */
+    public String buildDate() {
+        java.text.SimpleDateFormat f = new java.text.SimpleDateFormat("yyyy-MM-dd", Locale.ROOT);
+        f.setTimeZone(java.util.TimeZone.getTimeZone("UTC"));
+        return f.format(new java.util.Date(timeDateStamp * 1000L));
+    }
+
+    /** Everything needed to identify a build, in one copyable block. */
+    public String fingerprint(String fileName) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("file: ").append(fileName).append('\n');
+        sb.append("size: ").append(fileSize).append('\n');
+        sb.append("sha1: ").append(sha1).append('\n');
+        sb.append("sha256: ").append(sha256).append('\n');
+        sb.append("machine: ").append(machineName()).append('\n');
+        sb.append(String.format(Locale.ROOT, "pe-timestamp: %d (%s)%n", timeDateStamp, buildDate()));
+        sb.append("fixed-version: ").append(fileVersionString()).append('\n');
+        for (Map.Entry<String, String> e : versionStrings.entrySet()) {
+            sb.append("string ").append(e.getKey()).append(": ").append(e.getValue()).append('\n');
+        }
+        sb.append("sections: ").append(sectionNames).append('\n');
+        return sb.toString();
     }
 
     public boolean hasSection(String name) {

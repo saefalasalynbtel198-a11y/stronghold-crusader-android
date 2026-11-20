@@ -1,0 +1,121 @@
+diff -ruN a/sysdeps/nptl/_Fork.c b/sysdeps/nptl/_Fork.c
+--- a/sysdeps/nptl/_Fork.c
++++ b/sysdeps/nptl/_Fork.c
+@@ -49,8 +49,9 @@
+       self->robust_prev = &self->robust_head;
+ #endif
+       self->robust_head.list = &self->robust_head;
+-      INTERNAL_SYSCALL_CALL (set_robust_list, &self->robust_head,
+-			     sizeof (struct robust_list_head));
++      if (__nptl_set_robust_list_avail)	/* Android: never true, see dl-tls_init_tp.c.  */
++	INTERNAL_SYSCALL_CALL (set_robust_list, &self->robust_head,
++			       sizeof (struct robust_list_head));
+       call_function_static_weak (__getrandom_fork_subprocess);
+     }
+ 
+diff -ruN a/sysdeps/nptl/dl-tls_init_tp.c b/sysdeps/nptl/dl-tls_init_tp.c
+--- a/sysdeps/nptl/dl-tls_init_tp.c
++++ b/sysdeps/nptl/dl-tls_init_tp.c
+@@ -90,8 +90,10 @@
+     pd->robust_head.futex_offset = (offsetof (pthread_mutex_t, __data.__lock)
+                                     - offsetof (pthread_mutex_t,
+                                                 __data.__list.__next));
+-    int res = INTERNAL_SYSCALL_CALL (set_robust_list, &pd->robust_head,
+-                                     sizeof (struct robust_list_head));
++    /* Android: set_robust_list is blocked by the app seccomp filter and the
++       process would be killed with SIGSYS.  Behave as if the kernel lacked
++       it: __nptl_set_robust_list_avail stays false.  */
++    int res = -ENOSYS;
+     if (!INTERNAL_SYSCALL_ERROR_P (res))
+       {
+ #ifndef __ASSUME_SET_ROBUST_LIST
+diff -ruN a/sysdeps/nptl/dl-tunables.list b/sysdeps/nptl/dl-tunables.list
+--- a/sysdeps/nptl/dl-tunables.list
++++ b/sysdeps/nptl/dl-tunables.list
+@@ -31,7 +31,7 @@
+       type: INT_32
+       minval: 0
+       maxval: 1
+-      default: 1
++      default: 0
+     }
+     stack_hugetlb {
+       type: INT_32
+diff -ruN a/sysdeps/unix/sysv/linux/clone-internal.c b/sysdeps/unix/sysv/linux/clone-internal.c
+--- a/sysdeps/unix/sysv/linux/clone-internal.c
++++ b/sysdeps/unix/sysv/linux/clone-internal.c
+@@ -76,7 +76,9 @@
+ # if __ASSUME_CLONE3
+   return __clone3 (cl_args, sizeof (*cl_args), func, arg);
+ # else
+-  static int clone3_supported = 1;
++  /* Android: clone3 is blocked by the app seccomp filter on older releases
++     (SIGSYS instead of ENOSYS, so the fallback below never triggers).  */
++  static int clone3_supported = 0;
+   if (atomic_load_relaxed (&clone3_supported) == 1)
+     {
+       int ret = __clone3 (cl_args, sizeof (*cl_args), func, arg);
+diff -ruN a/sysdeps/unix/sysv/linux/faccessat.c b/sysdeps/unix/sysv/linux/faccessat.c
+--- a/sysdeps/unix/sysv/linux/faccessat.c
++++ b/sysdeps/unix/sysv/linux/faccessat.c
+@@ -26,7 +26,10 @@
+ int
+ __faccessat (int fd, const char *file, int mode, int flag)
+ {
+-  int ret = INLINE_SYSCALL_CALL (faccessat2, fd, file, mode, flag);
++  /* Android: faccessat2 is blocked by the app seccomp filter (SIGSYS) on many
++     releases.  Take the pre-5.8-kernel path directly.  */
++  int ret = -1;
++  __set_errno (ENOSYS);
+ #if __ASSUME_FACCESSAT2
+   return ret;
+ #else
+diff -ruN a/sysdeps/unix/sysv/linux/fchmodat.c b/sysdeps/unix/sysv/linux/fchmodat.c
+--- a/sysdeps/unix/sysv/linux/fchmodat.c
++++ b/sysdeps/unix/sysv/linux/fchmodat.c
+@@ -96,10 +96,9 @@
+   if (flag == 0)
+     return INLINE_SYSCALL_CALL (fchmodat, fd, file, mode);
+ 
+-  int r = INLINE_SYSCALL_CALL (fchmodat2, fd, file, mode, flag);
+-  if (r != 0 && errno == ENOSYS)
+-    return fchmodat_fallback (fd, file, mode, flag);
+-  return r;
++  /* Android: fchmodat2 may be blocked by the app seccomp filter (SIGSYS).
++     Use the O_PATH fallback that glibc uses on pre-6.6 kernels.  */
++  return fchmodat_fallback (fd, file, mode, flag);
+ #endif
+ }
+ libc_hidden_def (fchmodat)
+diff -ruN a/sysdeps/unix/sysv/linux/kernel-features.h b/sysdeps/unix/sysv/linux/kernel-features.h
+--- a/sysdeps/unix/sysv/linux/kernel-features.h
++++ b/sysdeps/unix/sysv/linux/kernel-features.h
+@@ -52,7 +52,9 @@
+ /* Support for inter-process robust mutexes was added in 2.6.17 (but
+    some architectures lack futex_atomic_cmpxchg_inatomic in some
+    configurations).  */
+-#define __ASSUME_SET_ROBUST_LIST	1
++/* Android: set_robust_list is not in the app seccomp allowlist (SIGSYS).
++   Do not assume it; glibc then keeps robust mutex lists in user space.  */
++/* #define __ASSUME_SET_ROBUST_LIST	1 */
+ 
+ /* Support for various CLOEXEC and NONBLOCK flags was added in
+    2.6.27.  */
+diff -ruN a/sysdeps/unix/sysv/linux/spawni.c b/sysdeps/unix/sysv/linux/spawni.c
+--- a/sysdeps/unix/sysv/linux/spawni.c
++++ b/sysdeps/unix/sysv/linux/spawni.c
+@@ -417,9 +417,11 @@
+       .parent_tid = use_pidfd ? (uintptr_t) &args.pidfd : 0,
+     };
+ #ifdef HAVE_CLONE3_WRAPPER
+-  args.use_clone3 = true;
+-  new_pid = __clone3 (&clone_args, sizeof (clone_args), __spawni_child,
+-		      &args);
++  /* Android: clone3 is blocked by the app seccomp filter on many releases
++     (SIGSYS, not ENOSYS).  Use the clone fallback below directly.  */
++  args.use_clone3 = false;
++  new_pid = -1;
++  __set_errno (ENOSYS);
+   /* clone3 was added in 5.3 and CLONE_CLEAR_SIGHAND in 5.5.  */
+   if (new_pid == -1 && (errno == ENOSYS || errno == EINVAL))
+ #endif

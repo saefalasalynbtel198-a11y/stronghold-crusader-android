@@ -60,6 +60,16 @@ public final class GameInstallation {
         return null;
     }
 
+    /** Build fingerprints of all executables, for identifying unverified builds. */
+    public String fingerprints() {
+        StringBuilder sb = new StringBuilder();
+        for (Executable e : executables) {
+            if (e.pe != null) sb.append(e.pe.fingerprint(e.name)).append("classification: ")
+                    .append(e.classification.support).append(" — ").append(e.classification.label).append("\n\n");
+        }
+        return sb.toString().trim();
+    }
+
     public String describe() {
         if (!present) return "No game imported yet.";
         StringBuilder sb = new StringBuilder();

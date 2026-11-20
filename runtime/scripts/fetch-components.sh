@@ -29,6 +29,9 @@ fetch "https://github.com/FunkyFr3sh/cnc-ddraw/releases/download/${CNC_DDRAW_TAG
       "$dl/cnc-ddraw-${CNC_DDRAW_TAG}.zip" "$CNC_DDRAW_SHA256"
 
 # Sanity checks on content layout.
-tar -tJf "$dl/$WINE_ASSET" | grep -m1 -E '/bin/wine$' > /dev/null || { echo "::error::wine binary not found in archive"; exit 1; }
-unzip -l "$dl/cnc-ddraw-${CNC_DDRAW_TAG}.zip" | grep -qi 'ddraw.dll' || { echo "::error::ddraw.dll not found in cnc-ddraw.zip"; exit 1; }
+# List into files first: grep -m1/-q on a pipe closes it early, and tar/unzip then fail under pipefail.
+tar -tJf "$dl/$WINE_ASSET" > "$here/out/wine-files.txt"
+grep -E '/bin/wine$' "$here/out/wine-files.txt" > /dev/null || { echo "::error::wine binary not found in archive"; exit 1; }
+unzip -l "$dl/cnc-ddraw-${CNC_DDRAW_TAG}.zip" > "$here/out/cnc-ddraw-files.txt"
+grep -qi 'ddraw.dll' "$here/out/cnc-ddraw-files.txt" || { echo "::error::ddraw.dll not found in cnc-ddraw.zip"; exit 1; }
 cat "$manifest"

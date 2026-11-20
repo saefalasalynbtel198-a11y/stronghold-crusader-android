@@ -1,7 +1,8 @@
 name: Runtime components (experimental)
 
 # Builds and fetches the third-party pieces of the planned Wine + Box64 runtime.
-# These outputs are NOT yet packaged into the APK (see docs/ARCHITECTURE.md, BUILD 2/3).
+# The final job assembles shc-runtime-*.zip, which the app installs via "Runtime → Install runtime package"
+# (BUILD 2). It is not embedded in the APK (size; see docs/ARCHITECTURE.md).
 # Kept separate from android-build.yml so its experimental status is visible on its own
 # and never hides or weakens the APK build result.
 on:
@@ -10,6 +11,14 @@ on:
     branches: [main]
     paths:
       - "runtime/**"
+      - ".github/workflows/runtime-components.yml"
+  pull_request:
+    paths:
+      - "runtime/**"
+      - "app/src/main/java/io/github/saefalasalynbtel198/shcport/core/RuntimeArchive.java"
+      - "app/src/main/java/io/github/saefalasalynbtel198/shcport/core/RuntimeProbe.java"
+      - "app/src/main/java/io/github/saefalasalynbtel198/shcport/core/RuntimeLayout.java"
+      - "scripts/ci/ExtractRuntime.java"
       - ".github/workflows/runtime-components.yml"
 
 permissions:
@@ -25,15 +34,58 @@ jobs:
       - name: Install cross toolchain
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu cmake ninja-build file python3
+          sudo apt-get install -y --no-install-recommends gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu libc6-dev-arm64-cross cmake ninja-build file python3
       - name: Build Box64
         run: bash runtime/scripts/build-box64.sh
+      - name: Build seccomp probe (aarch64, static, no libc)
+        run: bash runtime/scripts/build-sysprobe.sh
+      - name: Build glibc test program (aarch64)
+        run: aarch64-linux-gnu-gcc -O2 -Wall -Werror -pthread -o runtime/out/bin/shc-glibctest runtime/sysprobe/shc-glibctest.c
+      - name: Seccomp diagnosis test (Linux x86-64; reproduces exit 159 and the rseq fix)
+        run: bash runtime/scripts/test-sysprobe.sh
       - uses: actions/upload-artifact@v4
         with:
           name: runtime-box64-aarch64
           path: |
-            runtime/out/bin/box64
+            runtime/out/bin/
             runtime/out/box64.file.txt
+            runtime/out/sysprobe.file.txt
+            runtime/out/licenses/
+            runtime/out/x64lib/
+          if-no-files-found: error
+
+  glibc:
+    name: glibc ${{ matrix.arch }} with Android seccomp patch
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [aarch64, x86_64]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends gawk bison texinfo python3 make gcc patch xz-utils \
+            gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu libc6-dev-arm64-cross linux-libc-dev-arm64-cross
+      - name: Build glibc (pinned source, patched)
+        run: bash runtime/scripts/build-glibc.sh ${{ matrix.arch }}
+      - name: Android seccomp test (x86-64 build, device's blocked syscall set)
+        if: matrix.arch == 'x86_64'
+        run: bash runtime/scripts/test-glibc-android.sh runtime/out/glibc-x86_64
+      - name: Upload glibc build logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: glibc-${{ matrix.arch }}-logs
+          path: runtime/out/glibc-*.log
+      - name: Upload aarch64 glibc
+        if: matrix.arch == 'aarch64'
+        uses: actions/upload-artifact@v4
+        with:
+          name: runtime-glibc-aarch64
+          path: runtime/out/glibc-aarch64/
           if-no-files-found: error
 
   inputs:
@@ -50,3 +102,73 @@ jobs:
           path: runtime/out/
           if-no-files-found: error
           retention-days: 7
+
+  package:
+    name: Assemble runtime package
+    needs: [box64, inputs, glibc]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download Box64
+        uses: actions/download-artifact@v4
+        with:
+          name: runtime-box64-aarch64
+          path: runtime/out
+      - name: Download patched glibc
+        uses: actions/download-artifact@v4
+        with:
+          name: runtime-glibc-aarch64
+          path: runtime/out/glibc-aarch64
+      - name: Download Wine and cnc-ddraw
+        uses: actions/download-artifact@v4
+        with:
+          name: runtime-inputs
+          path: runtime/out
+      - name: Restore executable bit (artifacts do not keep permissions)
+        run: |
+          chmod 0755 runtime/out/bin/box64 runtime/out/bin/shc-sysprobe runtime/out/bin/shc-glibctest
+          find runtime/out/glibc-aarch64 -name 'ld-linux-aarch64.so.1' -exec chmod 0755 {} +
+      - name: Install tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends mmdebstrap debian-archive-keyring file unzip xz-utils python3
+      - name: Build ARM64 glibc userland
+        run: sudo bash runtime/scripts/build-userland.sh && sudo chown -R "$(id -u):$(id -g)" runtime/out
+      - name: Assemble package
+        run: bash runtime/scripts/assemble-runtime.sh
+      - name: Summary
+        run: |
+          {
+            echo "### Runtime package"
+            echo
+            echo '```'
+            ls -l runtime/out/shc-runtime-*.zip
+            cat runtime/out/shc-runtime-*.zip.sha256
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: shc-runtime-package
+          path: |
+            runtime/out/shc-runtime-*.zip
+            runtime/out/shc-runtime-*.zip.sha256
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Set up JDK 17 (for the app's extractor)
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Install qemu-user-static
+        run: sudo apt-get install -y --no-install-recommends qemu-user-static
+      - name: Self-test the package under qemu-aarch64 (Linux ARM64, not Android)
+        run: bash runtime/scripts/test-runtime-qemu.sh runtime/out/shc-runtime-*.zip "$RUNNER_TEMP/rt-test"
+      - name: Upload qemu self-test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: runtime-qemu-selftest
+          path: ${{ runner.temp }}/rt-test/qemu-selftest.txt
+          if-no-files-found: warn

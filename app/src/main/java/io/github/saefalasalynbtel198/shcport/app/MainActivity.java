@@ -61,11 +61,13 @@ public final class MainActivity extends Activity implements GameImporter.Listene
         cancelButton = Ui.button(this, "Cancel import", v -> app.importer().cancel());
         col.addView(Ui.row(this, importButton, cancelButton,
                 Ui.button(this, "Re-check", v -> refresh()),
+                Ui.button(this, "Copy build fingerprint", v -> copyFingerprint()),
                 Ui.button(this, "Delete imported game", v -> confirmDelete())));
 
         col.addView(Ui.heading(this, "2. Runtime"));
         runtimeStatus = Ui.body(this, "");
         col.addView(runtimeStatus);
+        col.addView(Ui.button(this, "Runtime: install / self-test", v -> startActivity(new Intent(this, RuntimeActivity.class))));
 
         col.addView(Ui.heading(this, "3. Play"));
         playButton = Ui.button(this, "Start game", v -> Toast.makeText(this,
@@ -150,15 +152,32 @@ public final class MainActivity extends Activity implements GameImporter.Listene
 
     private void show(GameInstallation inst, RuntimeStatus rs) {
         if (isFinishing()) return;
+        lastInstallation = inst;
         gameStatus.setText(inst.present ? "Imported to " + app.paths().gameDir() + "\n\n" + inst.describe() : inst.describe());
         GameInstallation.Executable candidate = inst.launchCandidate();
         String reason;
         if (!inst.present) reason = "Import your game folder first.";
         else if (candidate == null) reason = "No supported game executable was found in the imported folder (see details above).";
-        else if (!rs.isInstalled()) reason = "Game files are ready (" + candidate.name + "), but the runtime is not part of this development build.";
+        else if (!rs.isInstalled()) reason = "Game files are ready (" + candidate.name + "). Install the runtime package next (Runtime screen).";
+        else if (!rs.canLaunchGame()) reason = "Game files and runtime are installed. Launching the game needs the display server (BUILD 3); run the runtime self-test meanwhile.";
         else reason = "Ready.";
-        playButton.setEnabled(inst.present && candidate != null && rs.isInstalled());
+        playButton.setEnabled(inst.present && candidate != null && rs.canLaunchGame());
         playReason.setText(reason);
+    }
+
+    private GameInstallation lastInstallation;
+
+    private void copyFingerprint() {
+        GameInstallation inst = lastInstallation;
+        if (inst == null || !inst.present) {
+            Toast.makeText(this, "Import the game first.", Toast.LENGTH_LONG).show();
+            return;
+        }
+        android.content.ClipboardManager cm = (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+        if (cm != null) {
+            cm.setPrimaryClip(android.content.ClipData.newPlainText("SHC build fingerprint", inst.fingerprints()));
+            Toast.makeText(this, "Build fingerprint copied.", Toast.LENGTH_SHORT).show();
+        }
     }
 
     private void updateButtons() {
