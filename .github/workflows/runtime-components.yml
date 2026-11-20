@@ -132,7 +132,10 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: wine-native-test
-          path: ${{ runner.temp }}/wine-native/
+          # logs only: the prefix contains dosdevices/z: -> / which the uploader would try to walk
+          path: |
+            ${{ runner.temp }}/wine-native/*.log
+            ${{ runner.temp }}/wine-native/*.txt
           if-no-files-found: warn
 
   package:
