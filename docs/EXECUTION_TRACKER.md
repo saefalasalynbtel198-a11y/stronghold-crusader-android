@@ -80,6 +80,16 @@ Last updated: 2026-11-20 (BUILD 2 device report 2: glibc patched for Android sec
   no clone3 in threads and posix_spawn). Local test: patched glibc runs start-up, threads, robust mutex, fork,
   posix_spawn, faccessat, fchmodat under the device's blocked set (`test-glibc-android.sh`), also in CI.
 * The package replaces Debian's glibc with the patched build; new required self-test step `shc-glibctest`.
+* CI (commit `3c95ee9`): runtime run [44741982979](https://github.com/saefalasalynbtel198-a11y/stronghold-crusader-android/actions/runs/44741982979) green —
+  glibc aarch64 + x86_64 built from pinned source; x86_64 patched glibc passed under the device's blocked set
+  (glibctest, threads, subprocess; control child on unpatched glibc killed by SIGSYS); unpatched glibc + tunable
+  reproduced exit 159; package `shc-runtime-r3-box64-v0.3.8-wine-11.0-cncddraw-v7.0.0.0-trixie-glibc2.41android.zip`
+  (180,782,868 bytes, 31 patched glibc objects); qemu: loader, probe, glibctest, Box64, `wine-11.0` PASS.
+  APK run [44741983009](https://github.com/saefalasalynbtel198-a11y/stronghold-crusader-android/actions/runs/44741983009) green — 75,376 bytes,
+  0.2.2-dev.1-debug (4), SHA-256 `381249ba77e1868352968ffd899f43a6d1c0930f8fd986b7a6537621ca694e9b`, emulator smoke test passed.
+* Local check: remaining `set_robust_list` instructions in the aarch64 libc are only in `start_thread` and `_Fork`,
+  both behind the never-true availability flag.
+* NOT verified: anything on the Android device. Acceptance = device self-test steps 3, 5 and 6 PASS.
 * Requirement found for BUILD 3: every glibc child process must be started via the packaged loader.
 * Also (task 3): build fingerprint (text version strings, PE date, sections, hashes) + *Copy build fingerprint*;
   unverified DRM-free builds are labelled as such and not auto-accepted. GOG executable hashes still needed.
