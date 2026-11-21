@@ -69,9 +69,10 @@
 * 0.3.2–0.3.4 create the Wine prefix only if `files/prefix` already exists (left by the self-test or the Wine tests);
   with fresh app data wineboot fails with `chdir to .../prefix/wine : No such file or directory`. Fixed in 0.3.5-dev.1
   — CI-reproduced and CI-tested, not yet device-tested.
-* CI debug APKs are signed with the CI runner's debug key. If the key differs between builds, Android refuses the
-  update and an uninstall removes the runtime, the prefix and imported files. The APK check prints the certificate
-  digest; a fixed debug key would need a keystore in GitHub secrets (owner decision).
+* CI debug APKs are signed with a new debug key on every CI run (confirmed: 0.3.5-dev.1 `fcd0e71c…`, 0.3.6-dev.1
+  `6cc72f99…`). Android refuses such an update; uninstalling removes the runtime, the Wine prefix and the imported
+  game copy (app storage). This is the likely reason `files/prefix` was missing before the 0.3.4 run. A stable key
+  needs a development keystore in GitHub Actions secrets (owner decision; never in the repository).
 
 * 0.3.3-dev.1 passes the hard-link check on the device but Xvfb fails with "Cannot write display number to fd 3"
   (Android's mksh closes fd 3 on exec); fixed in 0.3.4-dev.1 (`-displayfd 1`, no shell) — CI-reproduced and

@@ -70,3 +70,13 @@ No input (step 3.4) and no sound (phase 4) in this step.
   ddraw.ini next to the game or in syswow64, colours in Xvfb, exit 42, game folder unchanged; its syscalls are part
   of the Android allowlist check.
 * Emulator smoke test: the game launch test screen opens (not started: no runtime or game in the emulator).
+
+## CI result (commit dbdea7c, Android build 44933729139, Runtime components 44933729122)
+
+Linux/qemu and x86_64 emulator, not Android, not the real game:
+* 90/90 unit tests; lint; APK verification; emulator smoke test (display test and game launch test screens open).
+* qemu job: all step 3.2 checks still PASS; step 4b stand-in game: setup PASS; DirectDraw pre-check PASS (exit 42,
+  `Loaded L"C:\\windows\\system32\\ddraw.dll" ...: native` — WoW64 shows syswow64 as system32 — four colours);
+  launch from D:\ PASS (exit 42, native ddraw, colours); no ddraw.ini next to the game or in syswow64; game folder
+  unchanged; 0 link calls; 48 traces within the Android allowlist.
+* Runtime r6 / Wine / cnc-ddraw regressions: all jobs PASS. No file under runtime/ changed.
