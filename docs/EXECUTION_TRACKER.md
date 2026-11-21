@@ -12,7 +12,7 @@ Last updated: 2026-11-20 (BUILD 2 device report 2: glibc patched for Android sec
 | 3d | BUILD 2 device acceptance | COMPLETED (owner-reported) | Owner, 2026-11-20, Xiaomi 25053PC47G Android 16: patched glibc, threads/robust mutex/fork, Box64 v0.3.8, `wine --version` PASS with runtime r3 / app 0.2.2-dev.1. |
 | 5a | BUILD 3 phase 1–2: Wine prefix + Windows PE smoke test | COMPLETED | Owner's device report 2026-11-21 (Xiaomi 25053PC47G, Android 16, app 0.3.1-dev.1, runtime r5): runtime self-test 4/4 required steps PASS, Wine tests 6/6 required steps PASS (prefix init, wineserver -w, wineserver dir, PE smoke 64-bit and 32-bit). Fix: glibc `accept` → `accept4` (milestone 5b section). |
 | 5b | CI for the fix (APK 0.3.1-dev.1, runtime r5) | COMPLETED | Repository made public, Actions unblocked. [Android build 44823423581](https://github.com/saefalasalynbtel198-a11y/stronghold-crusader-android/actions/runs/44823423581) (APK SHA-256 `be714a5d…daf19`), [Runtime components 44823423675](https://github.com/saefalasalynbtel198-a11y/stronghold-crusader-android/actions/runs/44823423675) 7/7 jobs (qemu Box64+Wine: no syscall outside Android's allowlist). |
-| 5c | BUILD 3 phase 3: display, game window, touch input | IN PROGRESS | Plan approved 2026-11-21 (Xvfb, 1024x768). Step 3.0 CI feasibility: PASS in CI only ([run 44905986966](https://github.com/saefalasalynbtel198-a11y/stronghold-crusader-android/actions/runs/44905986966), docs/evidence/build3-display-feasibility.md) — Linux emulation, not a device result. Next: owner decisions for r6. Start Game stays disabled. |
+| 5c | BUILD 3 phase 3: display, game window, touch input | IN PROGRESS | Step 3.0 feasibility PASS in CI. Step 3.1 runtime r6 (owner decision (a): glibc setuid/setgid same-id + shmget ENOSYS; Xvfb in the runtime): CI PASS, [run 44911670217](https://github.com/saefalasalynbtel198-a11y/stronghold-crusader-android/actions/runs/44911670217), docs/evidence/runtime-r6.md — not yet tested on the device. r5 remains the known-good fallback. Start Game stays disabled. |
 | 4 | Complete Android application (AR/EN, themes, game launch screen) | NOT STARTED | |
 | 5 | Runtime integration: display server, Wine prefix, cnc-ddraw, audio | IN PROGRESS | Wine prefix: COMPLETED (5a). Display + cnc-ddraw: 5c. Audio: phase 4. |
 | 6 | Touch controls injected into the game | NOT STARTED | Mapper done and unit-tested; injection = plan step 3.3 (XTEST) |
@@ -171,6 +171,6 @@ Last updated: 2026-11-20 (BUILD 2 device report 2: glibc patched for Android sec
 
 ## Next action
 
-1. Owner: decide how runtime r6 handles setuid/setgid-to-own-id and shmget (glibc patch or shipped preload), see
-   docs/BUILD3_PHASE3_PLAN.md section 7; approve step 3.1 (runtime r6).
-2. Agent: no runtime or app change before that approval.
+1. Owner, on the Android 16 phone with app 0.3.1-dev.1: install runtime r6, run the self-test and the Wine tests
+   (regression check of the glibc changes under the real seccomp filter); send both reports. Keep r5 to go back.
+2. Agent, after that: step 3.2 (display in the app: Xvfb start, framebuffer renderer, display test button).
