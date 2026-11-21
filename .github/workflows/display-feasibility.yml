@@ -42,15 +42,19 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends qemu-user-static binfmt-support mmdebstrap \
-            debian-archive-keyring gcc-mingw-w64-i686
+            debian-archive-keyring gcc-mingw-w64-i686 gcc-aarch64-linux-gnu
       - name: Build shc-gui-smoke.exe (i686, like the game)
         run: |
           mkdir -p out
           i686-w64-mingw32-gcc -O2 -Wall -Werror -static -o out/shc-gui-smoke.exe \
             runtime/spike/display/shc-gui-smoke.c -lgdi32
           sha256sum out/shc-gui-smoke.exe
+      - name: Build libshc-sameid.so (aarch64 preload for Xvfb; see its header)
+        run: |
+          aarch64-linux-gnu-gcc -shared -fPIC -O2 -Wall -Werror -o out/libshc-sameid.so runtime/spike/display/shc-sameid.c
+          sha256sum out/libshc-sameid.so
       - name: Feasibility test
-        run: bash runtime/spike/display/run-feasibility.sh r5/shc-runtime-r5-*.zip out/shc-gui-smoke.exe "$RUNNER_TEMP/df"
+        run: bash runtime/spike/display/run-feasibility.sh r5/shc-runtime-r5-*.zip out/shc-gui-smoke.exe out/libshc-sameid.so "$RUNNER_TEMP/df"
       - name: Upload results (screenshots, logs, checks)
         if: always()
         uses: actions/upload-artifact@v4
