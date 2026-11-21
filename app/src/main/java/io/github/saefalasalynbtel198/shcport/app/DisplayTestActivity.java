@@ -37,6 +37,11 @@ public final class DisplayTestActivity extends Activity implements Choreographer
     private int pauses;
     private int resumes;
     private long framesAtResumeCheck = -1;
+    static final String EXTRA_MODE = "shc.mode";
+    static final String MODE_DISPLAY = "display";
+    /** BUILD 3 step 3.3: the imported game instead of the test program (diagnostic; Start Game stays disabled). */
+    static final String MODE_GAME = "game";
+    private boolean game;
     private boolean recovered;
     private String lastReport = "";
 
@@ -52,12 +57,18 @@ public final class DisplayTestActivity extends Activity implements Choreographer
         view.setRenderer(renderer);
         view.setRenderMode(GLSurfaceView.RENDERMODE_WHEN_DIRTY);
 
+        game = MODE_GAME.equals(getIntent().getStringExtra(EXTRA_MODE));
+        renderer.wholeFrame = game;
         LinearLayout side = Ui.column(this);
-        side.addView(Ui.title(this, "Display test"));
-        side.addView(Ui.muted(this, "Box64 → Wine → X11 → Xvfb → this screen. " + X11DisplayPlan.WIDTH + "×"
-                + X11DisplayPlan.HEIGHT + ", letterboxed. Diagnostic only; Start Game stays disabled."));
-        start = Ui.button(this, "Start display test", v -> startTest());
-        stop = Ui.button(this, "Stop display test", v -> stopTest());
+        side.addView(Ui.title(this, game ? "Game launch test" : "Display test"));
+        side.addView(Ui.muted(this, game
+                ? "The imported game through Box64 → Wine → cnc-ddraw (GDI) → X11 → Xvfb → this screen, "
+                        + X11DisplayPlan.WIDTH + "×" + X11DisplayPlan.HEIGHT + ", letterboxed. No input yet (step 3.4), no sound. "
+                        + "The game files are only read and are checked before and after. Diagnostic only; Start Game stays disabled."
+                : "Box64 → Wine → X11 → Xvfb → this screen. " + X11DisplayPlan.WIDTH + "×"
+                        + X11DisplayPlan.HEIGHT + ", letterboxed. Diagnostic only; Start Game stays disabled."));
+        start = Ui.button(this, game ? "Start game launch test" : "Start display test", v -> startTest());
+        stop = Ui.button(this, game ? "Stop game" : "Stop display test", v -> stopTest());
         Button copy = Ui.button(this, "Copy report", v -> copyReport());
         side.addView(Ui.row(this, start, stop));
         side.addView(copy);
@@ -89,12 +100,13 @@ public final class DisplayTestActivity extends Activity implements Choreographer
         resumes = 0;
         recovered = false;
         framesAtResumeCheck = -1;
-        DisplayTestSession s = new DisplayTestSession(this, new AppPaths(this), (st, msg) -> ui.post(this::updateButtons));
+        DisplayTestSession s = new DisplayTestSession(this, new AppPaths(this), game, (st, msg) -> ui.post(this::updateButtons));
         session = s;
         new Thread(() -> {
             try {
-                File fb = s.start(() -> { /* Xvfb ready */ });
-                if (fb != null) renderer.setSource(fb);
+                // game mode: draw as soon as Xvfb runs, so the DirectDraw pre-check and the game start are visible
+                File fb = s.start(() -> { if (game) renderer.setSource(s.framebuffer()); });
+                if (fb != null && !game) renderer.setSource(fb);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
             } finally {
@@ -123,10 +135,10 @@ public final class DisplayTestActivity extends Activity implements Choreographer
 
     private void copyReport() {
         DisplayTestSession s = session;
-        String text = s == null ? "No display test run yet." : s.report(renderer.stats, pauses, resumes, recovered);
+        String text = s == null ? (game ? "No game launch test run yet." : "No display test run yet.") : s.report(renderer.stats, pauses, resumes, recovered);
         if (s != null) s.save(text);
         ClipboardManager cm = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
-        cm.setPrimaryClip(ClipData.newPlainText("SHC display test", text));
+        cm.setPrimaryClip(ClipData.newPlainText(game ? "SHC game launch test" : "SHC display test", text));
         Toast.makeText(this, "Report copied (also saved in the app's logs)", Toast.LENGTH_SHORT).show();
     }
 
@@ -136,7 +148,7 @@ public final class DisplayTestActivity extends Activity implements Choreographer
             DisplayTestSession s = session;
             FramebufferRenderer.Stats st = renderer.stats;
             if (s != null) s.poll(st);
-            if (resumes > 0 && framesAtResumeCheck < 0 && st.framesSinceResume > 30 && st.pixelOk) recovered = true;
+            if (resumes > 0 && framesAtResumeCheck < 0 && st.framesSinceResume > 30 && (game || st.pixelOk)) recovered = true;
             StringBuilder sb = new StringBuilder();
             if (s == null) {
                 sb.append(statusText.getText().toString().startsWith("This runtime") ? statusText.getText() : "Ready.");
@@ -144,14 +156,19 @@ public final class DisplayTestActivity extends Activity implements Choreographer
                 sb.append("State: ").append(s.state).append(" — ").append(s.status).append('\n');
                 if (s.error != null) sb.append("ERROR: ").append(s.error).append('\n');
                 sb.append("Xvfb: ").append(s.xvfbStatus).append('\n');
-                sb.append("Wine display: ").append(s.wineStatus).append('\n');
+                sb.append(game ? "Game: " : "Wine display: ").append(s.wineStatus).append('\n');
+                if (game) sb.append("Picture: ").append(s.pictureStatus).append('\n');
                 sb.append(String.format(Locale.ROOT, "Resolution: %s → view %dx%d%n",
                         st.format.isEmpty() ? "-" : X11DisplayPlan.WIDTH + "x" + X11DisplayPlan.HEIGHT, st.viewWidth, st.viewHeight));
-                sb.append(String.format(Locale.ROOT, "Display %d fps · uploads %d/s · Wine content %d fps%n",
+                if (game) sb.append(String.format(Locale.ROOT, "Display %d fps · picture changes %d/s%n",
+                        st.displayFps, st.uploadsPerSecond));
+                else sb.append(String.format(Locale.ROOT, "Display %d fps · uploads %d/s · Wine content %d fps%n",
                         st.displayFps, st.uploadsPerSecond, st.contentFps));
-                sb.append("Frame counter: ").append(st.lastCounter).append(" · dropped ").append(st.droppedFrames).append('\n');
-                sb.append("Pixel check: ").append(st.pixelOk ? "PASS" : "not passed").append('\n');
-                if (!st.pixelOk) sb.append(st.pixelCheck).append('\n');
+                if (!game) {
+                    sb.append("Frame counter: ").append(st.lastCounter).append(" · dropped ").append(st.droppedFrames).append('\n');
+                    sb.append("Pixel check: ").append(st.pixelOk ? "PASS" : "not passed").append('\n');
+                    if (!st.pixelOk) sb.append(st.pixelCheck).append('\n');
+                }
                 if (st.error != null) sb.append("Renderer: ").append(st.error).append('\n');
                 sb.append("Paused ").append(pauses).append(" · resumed ").append(resumes)
                         .append(resumes > 0 ? (recovered ? " · display updating after resume" : " · waiting for frames after resume") : "").append('\n');

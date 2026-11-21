@@ -22,6 +22,9 @@ import io.github.saefalasalynbtel198.shcport.core.XvfbStarter;
  *   start <runtime> <fbbase> <logdir> <first> <last> [--no-probe] [-- prefix...]: the app's XvfbStarter with real
  *     processes (prefix: e.g. the hard-link filter); leaves Xvfb running, prints "display N" and "pid P"
  *   cycle <runtime> <fbbase> <logdir> <rounds> [-- prefix...]: start on :37, check stdout, stop, check cleanup
+ *   game-launch <runtime> <prefix> <gamedir> <exe> <tmp> <display> <fbfile> <logdir>: step 3.3 with a stand-in game
+ *     (the runtime's DirectDraw program under the game's name): the app's WineLaunchPlan + GameSetup + manifest,
+ *     the DirectDraw pre-check as the app runs it, then the "game" from D:
  *   prefix-init <runtime> <prefix> <tmp> [--no-parent]: the display test's prefix stage (WinePrefixSetup +
  *     WineTestPlan.prefixInitSteps, run with ProcessBuilder like the app); --no-parent = as 0.3.2-0.3.4 (no mkdirs)
  *   wine-env <runtime> <prefix> <tmp> <display> | wine-argv <runtime> <exe> | check <framebuffer file>
@@ -37,6 +40,9 @@ public final class DisplayCli {
                 break;
             case "prefix-init":    // prefix-init <runtime> <prefix> <tmp> [--no-parent]
                 System.exit(prefixInit(a));
+                break;
+            case "game-launch":    // game-launch <runtime> <prefix> <gamedir> <exe> <tmp> <display> <fbfile> <logdir>
+                System.exit(gameLaunch(a));
                 break;
             case "cycle":          // cycle <runtime> <fbbase> <logdir> <rounds> [-- prefix...]
                 System.exit(cycle(a));
@@ -259,5 +265,82 @@ public final class DisplayCli {
         int from = Math.max(0, lines.length - 25);
         for (int i = from; i < lines.length; i++) if (!lines[i].isEmpty()) System.out.println("  | " + lines[i]);
         return done ? p.exitValue() : -1;
+    }
+
+    private static int gameLaunch(String[] a) throws Exception {
+        RuntimeLayout rt = new RuntimeLayout(new File(a[1]));
+        File prefix = new File(a[2]), game = new File(a[3]), tmp = new File(a[5]), fb = new File(a[7]), logs = new File(a[8]);
+        String exe = a[4];
+        int display = Integer.parseInt(a[6]);
+        logs.mkdirs();
+        int bad = 0;
+        io.github.saefalasalynbtel198.shcport.core.GameFolderManifest before =
+                io.github.saefalasalynbtel198.shcport.core.GameFolderManifest.snapshot(game);
+        System.out.println("game folder before: " + before.summary());
+        io.github.saefalasalynbtel198.shcport.core.WineLaunchPlan plan = io.github.saefalasalynbtel198.shcport.core.WineLaunchPlan
+                .build(rt, prefix, game, exe, tmp, display, Arrays.asList("ddraw", "10"));
+        io.github.saefalasalynbtel198.shcport.core.GameSetup.Result sr = io.github.saefalasalynbtel198.shcport.core.GameSetup
+                .prepare(plan, new io.github.saefalasalynbtel198.shcport.core.CncDdrawConfig());
+        System.out.print(sr.report);
+        System.out.println("check setup: " + (sr.ok ? "PASS" : "FAIL"));
+        if (!sr.ok) return 1;
+        // 1. the app's DirectDraw pre-check: runtime program by Unix path, cwd = runtime
+        bad += ddrawRun("precheck", plan.argvFor(rt.guiSmoke().getPath(), Arrays.asList("ddraw", "10")), rt.root, plan.env,
+                fb, new File(logs, "precheck.log"));
+        // 2. the "game": D:\<exe>, cwd = game folder
+        System.out.println("game argv: " + quoted(plan.argv) + " cwd " + plan.workingDirectory);
+        bad += ddrawRun("game", plan.argv, plan.workingDirectory, plan.env, fb, new File(logs, "game.log"));
+        String gameLog = new String(java.nio.file.Files.readAllBytes(new File(logs, "game.log").toPath()), java.nio.charset.StandardCharsets.UTF_8);
+        boolean cwdD = false, nativeDdraw = false;
+        for (String l : gameLog.split("\n")) {
+            String low = l.toLowerCase(java.util.Locale.ROOT);
+            if (low.contains("syswow64") && low.contains("ddraw.dll") && low.contains("native")) nativeDdraw = true;
+            if (low.contains("loaddll") && low.contains("d:") && low.contains(exe.toLowerCase(java.util.Locale.ROOT))) cwdD = true;
+        }
+        System.out.println("check +loaddll shows cnc-ddraw native from syswow64: " + (nativeDdraw ? "PASS" : "FAIL"));
+        if (!nativeDdraw) bad++;
+        System.out.println("info: game module loaded from D: " + cwdD);
+        boolean iniHere = new File(game, "ddraw.ini").exists() || new File(plan.ddrawTarget.getParentFile(), "ddraw.ini").exists();
+        System.out.println("check no ddraw.ini next to the game or in syswow64 (CNC_DDRAW_CONFIG_FILE honoured): " + (iniHere ? "FAIL" : "PASS"));
+        if (iniHere) bad++;
+        io.github.saefalasalynbtel198.shcport.core.GameFolderManifest.Diff d = before.compareTo(
+                io.github.saefalasalynbtel198.shcport.core.GameFolderManifest.snapshot(game));
+        System.out.println("check game folder unchanged: " + (d.unchanged() ? "PASS" : "FAIL " + d));
+        if (!d.unchanged()) bad++;
+        return bad == 0 ? 0 : 1;
+    }
+
+    /** Runs a DirectDraw program (shc-gui-smoke ddraw) to its end; PASS = exit 42, cnc-ddraw from syswow64, colours seen. */
+    private static int ddrawRun(String label, List<String> argv, File cwd, Map<String, String> env, File fb, File log) throws Exception {
+        ProcessBuilder pb = new ProcessBuilder(argv).directory(cwd).redirectErrorStream(true).redirectOutput(log);
+        pb.environment().remove("LD_LIBRARY_PATH");
+        pb.environment().putAll(env);
+        long t0 = System.currentTimeMillis();
+        Process p = pb.start();
+        p.getOutputStream().close();
+        String pixels = null;
+        while (!p.waitFor(2, java.util.concurrent.TimeUnit.SECONDS)) {
+            if (pixels == null && fb.isFile()) {
+                try (RandomAccessFile raf = new RandomAccessFile(fb, "r"); FileChannel ch = raf.getChannel()) {
+                    MappedByteBuffer m = ch.map(FileChannel.MapMode.READ_ONLY, 0, ch.size());
+                    XwdFramebuffer x = XwdFramebuffer.parse(m);
+                    DisplayTestPattern.Check c = DisplayTestPattern.checkQuadrants(x, m, DisplayTestPattern.DDRAW_COLORS, DisplayTestPattern.DDRAW_NAMES);
+                    if (c.ok) pixels = c.detail;
+                } catch (Exception ignored) { }
+            }
+            if (System.currentTimeMillis() - t0 > 40 * 60_000L) { p.destroyForcibly(); break; }
+        }
+        int code = p.isAlive() ? -1 : p.exitValue();
+        String out = new String(java.nio.file.Files.readAllBytes(log.toPath()), java.nio.charset.StandardCharsets.UTF_8);
+        String loaded = "";
+        for (String l : out.split("\n")) if (l.contains("gui-smoke: ddraw.dll = ")) loaded = l.substring(l.indexOf('=') + 1).trim();
+        boolean ok = code == 42 && pixels != null && loaded.toLowerCase(java.util.Locale.ROOT).contains("syswow64");
+        System.out.println("check " + label + ": " + (ok ? "PASS" : "FAIL") + " (exit " + code + ", "
+                + (System.currentTimeMillis() - t0) / 1000 + " s, ddraw.dll = " + loaded + ", pixels " + (pixels == null ? "not seen" : "OK: " + pixels) + ")");
+        if (!ok) {
+            String[] lines = out.split("\n");
+            for (int i = Math.max(0, lines.length - 30); i < lines.length; i++) System.out.println("  | " + lines[i]);
+        }
+        return ok ? 0 : 1;
     }
 }

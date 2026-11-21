@@ -56,6 +56,14 @@
 * Xvfb is a patched copy of Debian's binary (three path strings); if Debian changes the binary layout the patch
   step fails the build instead of producing a broken package.
 
+## Game launch test (0.3.6-dev.1)
+
+* Not yet run on a phone with the real game. No input and no sound: the game can only be watched.
+* Wine has no audio driver on Android; the game's sound libraries may fail or wait at start-up.
+* Intro videos (Bink) run under Box64 and cannot be skipped yet.
+* The imported 2012 GOG build is older than 1.41 and unverified (UNKNOWN).
+* Android external storage cannot be made read-only for the game; changes are detected and reported, not prevented.
+
 ## Display test (0.3.2-dev.1 – 0.3.5-dev.1)
 
 * 0.3.2–0.3.4 create the Wine prefix only if `files/prefix` already exists (left by the self-test or the Wine tests);

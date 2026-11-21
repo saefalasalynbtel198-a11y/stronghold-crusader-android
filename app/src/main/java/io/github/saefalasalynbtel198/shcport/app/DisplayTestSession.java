@@ -23,12 +23,19 @@ import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
 import io.github.saefalasalynbtel198.shcport.BuildConfig;
+import io.github.saefalasalynbtel198.shcport.core.CncDdrawConfig;
 import io.github.saefalasalynbtel198.shcport.core.DisplayStartOrder;
+import io.github.saefalasalynbtel198.shcport.core.DisplayTestPattern;
+import io.github.saefalasalynbtel198.shcport.core.FrameProbe;
+import io.github.saefalasalynbtel198.shcport.core.GameFolderManifest;
+import io.github.saefalasalynbtel198.shcport.core.GameSetup;
 import io.github.saefalasalynbtel198.shcport.core.RuntimeLayout;
 import io.github.saefalasalynbtel198.shcport.core.RuntimeProbe;
 import io.github.saefalasalynbtel198.shcport.core.WinePrefixSetup;
 import io.github.saefalasalynbtel198.shcport.core.WineTestPlan;
+import io.github.saefalasalynbtel198.shcport.core.WineLaunchPlan;
 import io.github.saefalasalynbtel198.shcport.core.X11DisplayPlan;
+import io.github.saefalasalynbtel198.shcport.core.XwdFramebuffer;
 
 /**
  * BUILD 3 step 3.2 display test: Xvfb from the runtime, the test program through Box64 + Wine into it, the app
@@ -61,7 +68,29 @@ final class DisplayTestSession {
     private final Map<Integer, Long> lastTicks = new LinkedHashMap<>();
     private long lastSampleMs;
 
+    /** BUILD 3 step 3.3: the imported game instead of the display test program. */
+    final boolean game;
+    volatile String pictureStatus = "-";
+    private GameInstallation.Executable gameExe;
+    private GameFolderManifest manifestBefore;
+    String gameFilesCheck = "not checked";
+    private WineLaunchPlan plan;
+    String setupReport = "";
+    String precheckResult = "not run";
+    private FrameProbe lastProbe;
+    private int pictureChanges;
+    private long lastProbeMs;
+    private boolean ddrawNative;
+    private long nextSnapshotS = 15;
+    final List<String> snapshots = new ArrayList<>();
+    private final java.util.concurrent.ExecutorService snapshotter = java.util.concurrent.Executors.newSingleThreadExecutor();
+
     DisplayTestSession(Context context, AppPaths paths, Listener listener) {
+        this(context, paths, false, listener);
+    }
+
+    DisplayTestSession(Context context, AppPaths paths, boolean game, Listener listener) {
+        this.game = game;
         this.context = context.getApplicationContext();
         this.paths = paths;
         this.rt = new RuntimeLayout(paths.runtimeDir());
@@ -108,7 +137,7 @@ final class DisplayTestSession {
             @Override public boolean runtime() { return runtimeStage(); }
             @Override public boolean prefix() throws InterruptedException { return prefixStage(); }
             @Override public boolean xvfb() throws InterruptedException { return xvfbStage(onXvfbReady); }
-            @Override public boolean testProgram() { return testProgramStage(); }
+            @Override public boolean testProgram() throws InterruptedException { return game ? gameStage() : testProgramStage(); }
         });
         if (failed != null) log("start stopped at stage " + failed + (failed == DisplayStartOrder.Stage.PREFIX
                 ? " (Xvfb was not started)" : ""));
@@ -120,8 +149,12 @@ final class DisplayTestSession {
         set(State.PREPARING, "Preparing");
         if (!rt.looksInstalled()) { fail("runtime not installed"); return false; }
         if (!rt.hasX11()) { fail("this runtime has no X server: install runtime r6 or newer"); return false; }
-        exe = copyTestProgram();
-        if (exe == null) return false;
+        if (game) {
+            if (!gameCheck()) return false;
+        } else {
+            exe = copyTestProgram();
+            if (exe == null) return false;
+        }
         // An earlier Xvfb, and Wine processes started without a display (Wine's desktop process decides the display
         // driver for later programs, found in the CI feasibility test).
         List<Integer> oldX = ProcInfo.find("/x11/Xvfb");
@@ -206,6 +239,193 @@ final class DisplayTestSession {
         return true;
     }
 
+    // ------------------------------------------------------------------------------------------------ game (3.3)
+
+    /** The imported game: executable and its classification, asset check, manifest of the folder (read only). */
+    private boolean gameCheck() {
+        if (!rt.guiSmoke().isFile()) { fail("this runtime has no DirectDraw test program (runtime r6 or newer needed)"); return false; }
+        if (!rt.cncDdraw().isFile()) { fail("this runtime has no cnc-ddraw"); return false; }
+        set(State.PREPARING, "Checking the imported game");
+        File gameDir = paths.gameDir();
+        GameInstallation inst = GameInstallation.inspect(gameDir);
+        if (!inst.present) { fail("no game imported (import the game folder first)"); return false; }
+        log("game folder: " + gameDir + "\n" + inst.describe());
+        gameExe = inst.launchCandidate();
+        if (gameExe == null) {
+            fail("no executable may be started: the asset check failed or no build is allowed (see the game screen)");
+            return false;
+        }
+        log("game executable: " + gameExe.name + " — " + gameExe.classification.support + " (" + gameExe.classification.label
+                + "); SHA-256 " + gameExe.pe.sha256);
+        try {
+            manifestBefore = GameFolderManifest.snapshot(gameDir);
+            log("game folder before the launch: " + manifestBefore.summary());
+        } catch (Exception e) {
+            fail("cannot read the game folder: " + e.getMessage());
+            return false;
+        }
+        return true;
+    }
+
+    /**
+     * Setup inside the prefix, the DirectDraw pre-check (the runtime's own DirectDraw program through the same
+     * cnc-ddraw setup: must load cnc-ddraw from syswow64 and show its four colours), then the game.
+     */
+    private boolean gameStage() throws InterruptedException {
+        plan = WineLaunchPlan.build(rt, prefix, paths.gameDir(), gameExe.name, paths.tmpDir(), x11.display,
+                java.util.Collections.<String>emptyList());
+        set(State.STARTING_WINE, "Preparing the game in the Wine prefix (the game folder is not changed)");
+        GameSetup.Result sr = GameSetup.prepare(plan, new CncDdrawConfig());
+        setupReport = sr.report;
+        log("game setup:\n" + sr.report.trim());
+        if (!sr.ok) { fail("game setup failed (see the log)"); return false; }
+
+        set(State.STARTING_WINE, "DirectDraw pre-check: cnc-ddraw with the runtime's test program");
+        File pcLog = new File(paths.logsDir(), "game-ddraw-check-" + stamp + ".log");
+        List<String> pcArgv = plan.argvFor(rt.guiSmoke().getPath(), Arrays.asList("ddraw", "10"));
+        log("pre-check command: " + argvForLog(pcArgv));
+        Process pc;
+        try {
+            ProcessBuilder pb = new ProcessBuilder(pcArgv).directory(rt.root).redirectErrorStream(true)
+                    .redirectOutput(ProcessBuilder.Redirect.appendTo(pcLog));
+            pb.environment().putAll(plan.env);
+            pc = pb.start();
+        } catch (Exception e) {
+            fail("could not start the DirectDraw pre-check: " + e.getMessage());
+            return false;
+        }
+        long t0 = SystemClock.uptimeMillis();
+        String pixels = "not seen";
+        boolean seen = false;
+        while (!pc.waitFor(1, TimeUnit.SECONDS)) {
+            if (!seen) {
+                String c = checkFrame(DisplayTestPattern.DDRAW_COLORS, DisplayTestPattern.DDRAW_NAMES);
+                if (c != null && c.startsWith("OK")) { seen = true; pixels = c; }
+            }
+            if (SystemClock.uptimeMillis() - t0 > 15 * 60_000) { pc.destroyForcibly(); break; }
+        }
+        int code = pc.isAlive() ? -1 : pc.exitValue();
+        String out = tail(pcLog, 4000);
+        String loaded = "";
+        for (String l : out.split("\n")) if (l.contains("gui-smoke: ddraw.dll = ")) loaded = l.substring(l.indexOf('=') + 1).trim();
+        boolean fromSys = loaded.toLowerCase(Locale.ROOT).contains("syswow64");
+        boolean ok = code == 42 && seen && fromSys;
+        precheckResult = (ok ? "PASS" : "FAILED") + String.format(Locale.ROOT, " (exit %d, %d s; ddraw.dll = %s; pixels: %s)",
+                code, (SystemClock.uptimeMillis() - t0) / 1000, loaded.isEmpty() ? "not reported" : loaded, pixels);
+        log("DirectDraw pre-check: " + precheckResult + "\npre-check output (end):\n" + out);
+        if (!ok) { fail("DirectDraw pre-check " + precheckResult + " — the game was not started"); return false; }
+
+        set(State.STARTING_WINE, "Starting the game: " + gameExe.name);
+        wineLog = new File(paths.logsDir(), "game-wine-" + stamp + ".log");
+        log("game command (cwd " + plan.workingDirectory + " = D:\\): " + argvForLog(plan.argv) + "; DISPLAY=" + plan.env.get("DISPLAY")
+                + ", WINEDLLOVERRIDES=" + plan.env.get("WINEDLLOVERRIDES") + ", CNC_DDRAW_CONFIG_FILE=" + plan.env.get("CNC_DDRAW_CONFIG_FILE")
+                + ", WINEDEBUG=" + plan.env.get("WINEDEBUG"));
+        try {
+            ProcessBuilder pb = new ProcessBuilder(plan.argv).directory(plan.workingDirectory).redirectErrorStream(true)
+                    .redirectOutput(ProcessBuilder.Redirect.appendTo(wineLog));
+            pb.environment().putAll(plan.env);
+            wine = pb.start();
+        } catch (Exception e) {
+            fail("could not start the game: " + e.getMessage());
+            return false;
+        }
+        wineStatus = "starting (Box64/Wine start-up, game loading)";
+        gameStartMs = SystemClock.uptimeMillis();
+        return true;
+    }
+
+    private long gameStartMs;
+
+    /** The framebuffer file once Xvfb runs (null before). */
+    File framebuffer() { return fbFile; }
+
+    /** Maps the framebuffer read-only and runs a check on it; null if it cannot be read. */
+    private <T> T withFrame(java.util.function.BiFunction<XwdFramebuffer, java.nio.ByteBuffer, T> f) {
+        File fbf = fbFile;
+        if (fbf == null) return null;
+        try (RandomAccessFile raf = new RandomAccessFile(fbf, "r"); java.nio.channels.FileChannel ch = raf.getChannel()) {
+            java.nio.MappedByteBuffer m = ch.map(java.nio.channels.FileChannel.MapMode.READ_ONLY, 0, ch.size());
+            return f.apply(XwdFramebuffer.parse(m), m);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private String checkFrame(int[] colors, String[] names) {
+        return withFrame((fb, m) -> {
+            DisplayTestPattern.Check c = DisplayTestPattern.checkQuadrants(fb, m, colors, names);
+            return (c.ok ? "OK " : "not OK ") + c.detail;
+        });
+    }
+
+    /** Game mode part of {@link #poll}: picture, cnc-ddraw, snapshots. Runs on the UI thread: keep it cheap. */
+    private void pollGame(long now) {
+        if (now - lastProbeMs >= 2000) {
+            lastProbeMs = now;
+            FrameProbe p = withFrame(FrameProbe::sample);
+            if (p != null) {
+                if (lastProbe != null && p.differsFrom(lastProbe)) pictureChanges++;
+                pictureStatus = p + "; " + (lastProbe == null ? "first sample" : p.differsFrom(lastProbe) ? "changing" : "still")
+                        + " (" + pictureChanges + " changes seen)";
+                lastProbe = p;
+                if (p.nonBlack > 0.02 && state == State.STARTING_WINE) set(State.RUNNING, "Running: game picture on screen (no input yet)");
+            }
+            if (!ddrawNative) {
+                for (String l : tail(wineLog, 262144).split("\n")) {
+                    String low = l.toLowerCase(Locale.ROOT);
+                    if (low.contains("syswow64") && low.contains("ddraw.dll") && low.contains("native")) {
+                        ddrawNative = true;
+                        log("cnc-ddraw loaded by the game: " + l.trim());
+                        break;
+                    }
+                }
+            }
+            wineStatus = "running " + (now - gameStartMs) / 1000 + " s; cnc-ddraw " + (ddrawNative ? "loaded (native, syswow64)" : "not loaded yet");
+        }
+        long secs = (now - gameStartMs) / 1000;
+        if (secs >= nextSnapshotS && snapshots.size() < 12) {
+            nextSnapshotS = nextSnapshotS < 120 ? nextSnapshotS * 2 : nextSnapshotS + 120;
+            File png = new File(paths.logsDir(), String.format(Locale.ROOT, "game-%s-%04ds.png", stamp, secs));
+            snapshotter.execute(() -> {
+                Boolean ok = withFrame((fb, m) -> {
+                    int[] argb = new int[fb.width * fb.height];
+                    for (int y = 0; y < fb.height; y++) for (int x = 0; x < fb.width; x++) argb[y * fb.width + x] = 0xff000000 | fb.rgb(m, x, y);
+                    android.graphics.Bitmap b = android.graphics.Bitmap.createBitmap(argb, fb.width, fb.height, android.graphics.Bitmap.Config.ARGB_8888);
+                    try (OutputStream o = new FileOutputStream(png)) {
+                        return b.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, o);
+                    } catch (Exception e) {
+                        return false;
+                    } finally {
+                        b.recycle();
+                    }
+                });
+                if (Boolean.TRUE.equals(ok)) synchronized (snapshots) { snapshots.add(png.getPath()); }
+            });
+        }
+    }
+
+    /** Lines of the game's Wine log worth reading: errors and the DLLs that matter for this game. */
+    private String gameLogDigest() {
+        if (wineLog == null) return "(no game log)";
+        String all = tail(wineLog, 2_000_000);
+        StringBuilder dll = new StringBuilder(), err = new StringBuilder();
+        java.util.Set<String> seenErr = new java.util.LinkedHashSet<>();
+        int loaded = 0;
+        for (String l : all.split("\n")) {
+            String low = l.toLowerCase(Locale.ROOT);
+            if (low.contains("loaddll")) {
+                loaded++;
+                if (low.contains("ddraw") || low.contains("binkw32") || low.contains("mss32") || low.contains("dsound")
+                        || low.contains("winmm") || low.contains(".exe")) dll.append(l.trim()).append('\n');
+            } else if (low.contains("err:") && seenErr.size() < 40) {
+                seenErr.add(l.replaceAll("^[0-9a-f]+:", "").trim());
+            }
+        }
+        for (String e : seenErr) err.append(e).append('\n');
+        return "DLLs loaded: " + loaded + " lines; relevant:\n" + (dll.length() == 0 ? "(none)\n" : dll)
+                + "Distinct err: lines (first 40):\n" + (err.length() == 0 ? "(none)\n" : err);
+    }
+
     /** Called about once a second by the activity while the test runs. */
     void poll(FramebufferRenderer.Stats s) {
         long now = SystemClock.uptimeMillis();
@@ -217,7 +437,16 @@ final class DisplayTestSession {
                 fail("Xvfb " + xvfbStatus);
             }
         }
-        if (wine != null && state != State.STOPPING && state != State.STOPPED) {
+        if (game && wine != null && state != State.STOPPING && state != State.STOPPED) {
+            if (!wine.isAlive() && state != State.FAILED) {
+                int c = wine.exitValue();
+                wineStatus = "EXITED after " + (now - gameStartMs) / 1000 + " s, code " + c + " (" + RuntimeProbe.describeExit(c) + ")";
+                log("game Wine log (end):\n" + tail(wineLog, 6000));
+                fail("game " + wineStatus);
+            } else if (wine.isAlive()) {
+                pollGame(now);
+            }
+        } else if (wine != null && state != State.STOPPING && state != State.STOPPED) {
             if (!wine.isAlive() && state != State.FAILED) {
                 int c = wine.exitValue();
                 wineStatus = "EXITED, code " + c + " (" + RuntimeProbe.describeExit(c) + ")";
@@ -232,7 +461,11 @@ final class DisplayTestSession {
                 if (s.pixelOk && state == State.STARTING_WINE) set(State.RUNNING, "Running: test window on screen");
             }
         }
-        if (now - lastSampleMs >= 5000) {
+        if (game && now - lastSampleMs >= 5000) {
+            lastSampleMs = now;
+            timeline.add(String.format(Locale.ROOT, "t=%4.0fs display %2d fps, picture changes %2d/s, picture %s, %s",
+                    (now - startedAt) / 1000.0, s.displayFps, s.uploadsPerSecond, pictureStatus, resources()));
+        } else if (now - lastSampleMs >= 5000) {
             lastSampleMs = now;
             timeline.add(String.format(Locale.ROOT,
                     "t=%4.0fs display %2d fps, uploads %2d/s, Wine content %2d fps, counter %d, dropped %d, pixels %s, %s",
@@ -280,7 +513,7 @@ final class DisplayTestSession {
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
             }
-            log("test program: " + (wine.isAlive() ? "still running" : "exit " + wine.exitValue()) + "; log:\n" + tail(wineLog, 4000));
+            log((game ? "game: " : "test program: ") + (wine.isAlive() ? "still running" : "exit " + wine.exitValue()) + "; log:\n" + tail(wineLog, 4000));
         }
         if (x11 != null) {
             boolean wasRunning = x11.isRunning();
@@ -289,12 +522,27 @@ final class DisplayTestSession {
                     + (ended ? "ended" : "STILL RUNNING") + "); stdout: "
                     + (x11.stdout != null ? x11.stdout.afterLineSummary() : "-") + "; log:\n" + x11.logTail(3000));
         }
+        if (game && manifestBefore != null) {
+            try {
+                GameFolderManifest.Diff d = manifestBefore.compareTo(GameFolderManifest.snapshot(paths.gameDir()));
+                gameFilesCheck = d.unchanged() ? "PASS — unchanged (" + manifestBefore.summary() + ")" : "FAILED — " + d;
+            } catch (Exception e) {
+                gameFilesCheck = "not possible: " + e.getMessage();
+            }
+            log("game folder after the launch: " + gameFilesCheck);
+            if (!gameFilesCheck.startsWith("PASS") && before != State.FAILED) {
+                error = "game folder " + gameFilesCheck;
+                before = State.FAILED;
+            }
+        }
+        snapshotter.shutdown();
         state = before == State.FAILED ? State.FAILED : State.STOPPED;
         status = state == State.FAILED ? "Stopped after failure" : "Stopped";
         listener.onState(state, status);
     }
 
     String report(FramebufferRenderer.Stats s, int pauses, int resumes, boolean recovered) {
+        if (game) return gameReport(s, pauses, resumes, recovered);
         StringBuilder r = new StringBuilder("SHC port display test (BUILD 3 step 3.2)\n");
         r.append("Result: ").append(state).append(error != null ? " — " + error : "").append('\n');
         r.append("Xvfb: ").append(xvfbStatus).append('\n');
@@ -319,8 +567,38 @@ final class DisplayTestSession {
         return r.toString();
     }
 
+    private String gameReport(FramebufferRenderer.Stats s, int pauses, int resumes, boolean recovered) {
+        StringBuilder r = new StringBuilder("SHC port game launch test (BUILD 3 step 3.3) — diagnostic, Start Game stays disabled\n");
+        r.append("Result: ").append(state).append(error != null ? " — " + error : "").append('\n');
+        r.append("Game executable: ").append(gameExe == null ? "-" : gameExe.name + " — " + gameExe.classification.support
+                + " (" + gameExe.classification.label + ")").append('\n');
+        r.append("Game files check (before/after): ").append(gameFilesCheck).append('\n');
+        r.append("Xvfb: ").append(xvfbStatus).append('\n');
+        r.append("DirectDraw pre-check: ").append(precheckResult).append('\n');
+        r.append("Game: ").append(wineStatus).append('\n');
+        r.append("Picture: ").append(pictureStatus).append('\n');
+        r.append(String.format(Locale.ROOT, "Display: %d fps, picture changes %d/s, last upload %d µs; view %dx%d; paused %d, resumed %d; display after resume: %s%n",
+                s.displayFps, s.uploadsPerSecond, s.uploadMicros, s.viewWidth, s.viewHeight, pauses, resumes,
+                resumes == 0 ? "not tested" : recovered ? "updating" : "NOT updating"));
+        r.append("Resources now: ").append(resources()).append(" (CPU in % of one core; ").append(ProcInfo.CPUS).append(" cores)\n");
+        synchronized (snapshots) {
+            r.append("Snapshots of the X screen: ").append(snapshots.isEmpty() ? "none" : String.join(", ", snapshots)).append('\n');
+        }
+        r.append("Setup inside the Wine prefix:\n").append(setupReport);
+        r.append("\nGame log digest:\n").append(gameLogDigest());
+        r.append("\nlogcat (this app: SELinux, seccomp, crashes):\n").append(logcat()).append('\n');
+        r.append("\nTimeline:\n");
+        for (String t : timeline) r.append(t).append('\n');
+        r.append("\nLog:\n");
+        synchronized (report) {
+            r.append(report);
+        }
+        if (wineLog != null) r.append("\nGame Wine log (end):\n").append(tail(wineLog, 4000)).append('\n');
+        return r.toString();
+    }
+
     void save(String text) {
-        String name = "display-test-" + new SimpleDateFormat("yyyyMMdd-HHmmss", Locale.ROOT).format(new Date()) + ".txt";
+        String name = (game ? "game-launch-test-" : "display-test-") + new SimpleDateFormat("yyyyMMdd-HHmmss", Locale.ROOT).format(new Date()) + ".txt";
         try (OutputStream o = new FileOutputStream(new File(paths.logsDir(), name))) {
             o.write(text.getBytes(StandardCharsets.UTF_8));
         } catch (Exception ignored) {

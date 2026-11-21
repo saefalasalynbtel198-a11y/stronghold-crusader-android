@@ -63,6 +63,18 @@ adb shell dumpsys activity activities | grep -E "mResumedActivity|topResumedActi
 grep -q "DisplayTestActivity" "$OUT/display-resumed-2.txt" || fail "display test screen not resumed after screen off/on"
 app_pid > /dev/null || fail "app process died on the display test screen"
 adb shell screencap -p /sdcard/display.png && adb pull /sdcard/display.png "$OUT/display-screen.png" > /dev/null || true
+
+# Game launch test screen (BUILD 3 step 3.3, same activity in game mode): opens; not started (no runtime, no game here)
+adb shell am start -S -W -n "$PKG/.app.MainActivity" --es shc.open game-launch > "$OUT/am-start-game.txt"
+sleep 5
+adb shell dumpsys activity activities | grep -E "mResumedActivity|topResumedActivity|ResumedActivity" | tee "$OUT/game-resumed.txt"
+grep -q "DisplayTestActivity" "$OUT/game-resumed.txt" || fail "game launch test screen did not open"
+app_pid > /dev/null || fail "app process died on the game launch test screen"
+adb shell uiautomator dump /sdcard/game-ui.xml > /dev/null 2>&1 && adb pull /sdcard/game-ui.xml "$OUT/game-ui.xml" > /dev/null 2>&1 || true
+if [ -s "$OUT/game-ui.xml" ]; then
+  grep -q "Game launch test" "$OUT/game-ui.xml" || fail "game launch test screen does not show its title"
+fi
+adb shell screencap -p /sdcard/game.png && adb pull /sdcard/game.png "$OUT/game-screen.png" > /dev/null || true
 adb logcat -d > "$OUT/logcat.txt"
 if grep -E "FATAL EXCEPTION|ANR in $PKG" "$OUT/logcat.txt"; then
   fail "crash or ANR detected"

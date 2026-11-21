@@ -1,5 +1,15 @@
 # Release notes
 
+## 0.3.6-dev.1 — BUILD 3 step 3.3: game launch test (development build, not a playable game)
+
+* Runtime → **Game launch test**: starts the imported game through the step 3.2 display path (Box64 → Wine →
+  cnc-ddraw with the GDI renderer → X11 → Xvfb → this screen), after a DirectDraw pre-check with the runtime's own
+  test program. Shows the game process, whether cnc-ddraw was loaded, picture activity, FPS, CPU/memory; saves
+  PNG snapshots of the X screen; Copy report.
+* The game files are only read: drive D: is a link in the Wine prefix, cnc-ddraw and its ddraw.ini are placed in the
+  prefix. The game folder is recorded before the launch and compared after it.
+* No input (step 3.4) and no sound (phase 4) yet. Start Game stays disabled. No runtime change (r6).
+
 ## 0.3.5-dev.1 — BUILD 3 step 3.2 fix: Wine prefix in the display test (development build, not a playable game)
 
 * **Device result (owner, 2026-11-21): display test PASSED** on Xiaomi 25053PC47G, Android 16 (Xvfb :37, Wine window, pixel check, ~27 fps, pause/resume; Wine tests 6/6, self-test 4/4).

@@ -13,6 +13,9 @@
 #      (fresh app data, no parent directory), then fresh prefix created, then an initialised prefix kept
 #   3. xdpyinfo; shc-display-test.exe with the app's Wine environment and DISPLAY, in that prefix
 #   4. framebuffer read with the app's XWD parser through a read-only mapping: 4 quadrants, counter, motion
+#   4b. step 3.3: the app's game launch code (WineLaunchPlan, GameSetup, GameFolderManifest) with a stand-in game
+#      (the runtime's DirectDraw test program copied under the game's file name): D: drive, cnc-ddraw native from
+#      syswow64, ddraw.ini via CNC_DDRAW_CONFIG_FILE, DirectDraw colours in Xvfb, game folder unchanged
 #   5. start/stop cycles with the app's code: stdout closed after the number, process ended, socket gone
 #   6. no link syscall in any Xvfb started by the app's code; every syscall checked against Android's arm64 allowlist
 # Usage: test-app-display-qemu.sh <shc-runtime-r6-*.zip> <shc-display-test.exe> <work dir>
@@ -148,6 +151,18 @@ python3 -I "$repo/runtime/display/check-fb.py" "$fb/Xvfb_screen0" none "$W/displ
 grep "display-test:" "$W/display-test.log" | head -8
 
 timeout 120 "$box64" "$wineserver" -k > /dev/null 2>&1; wait $wpid; echo "test program exit $?"
+
+echo "== 4b. step 3.3 game launch path with a stand-in game (the runtime's DirectDraw program named like the game)"
+sgame="$W/standin-game"; rm -rf "$sgame"; mkdir -p "$sgame/gm" "$sgame/maps"
+cp "$rt/win/shc-gui-smoke.exe" "$sgame/Stronghold Crusader.exe"   # our own test program (runtime/pe-smoke), not game code
+head -c 4096 /dev/urandom > "$sgame/gm/standin.gm1"; echo standin > "$sgame/maps/standin.map"
+QEMU_STRACE=1 QEMU_LOG_FILENAME="$st/game.%d" cli game-launch "$rt" "$prefix" "$sgame" "Stronghold Crusader.exe" "$files/tmp" $D \
+  "$fb/Xvfb_screen0" "$W/game-logs" | tee "$W/game-launch.txt"; rc=$?
+grep -E '^\s+\| .*(loaddll.*(ddraw|Stronghold)|err:)' "$W/game-logs/game.log" 2>/dev/null | head -5
+if [ $rc -eq 0 ] && [ "$(grep -c '^check .*: PASS' "$W/game-launch.txt")" -ge 6 ]; then
+  result game-standin "PASS (app's WineLaunchPlan/GameSetup: D: link, cnc-ddraw native from syswow64, ini via CNC_DDRAW_CONFIG_FILE, pre-check and D:\\ launch drew the 4 DirectDraw colours, exit 42, game folder unchanged)"
+else result game-standin "FAIL (exit $rc)"; fi
+timeout 120 "$box64" "$wineserver" -k > /dev/null 2>&1
 pkill -u "$(id -u)" -f "x11/Xvfb :$D "; sleep 3
 alive $D && result stop "FAIL (Xvfb still running)" || result stop "PASS (Xvfb stopped on SIGTERM)"
 [ -e "$fb/Xvfb_screen0" ] && echo "framebuffer file still present after stop" || echo "framebuffer file removed by Xvfb on exit"

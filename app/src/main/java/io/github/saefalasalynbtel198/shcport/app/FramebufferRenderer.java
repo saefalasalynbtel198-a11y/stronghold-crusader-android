@@ -16,6 +16,7 @@ import javax.microedition.khronos.egl.EGLConfig;
 import javax.microedition.khronos.opengles.GL10;
 
 import io.github.saefalasalynbtel198.shcport.core.DisplayTestPattern;
+import io.github.saefalasalynbtel198.shcport.core.FrameProbe;
 import io.github.saefalasalynbtel198.shcport.core.FrameStats;
 import io.github.saefalasalynbtel198.shcport.core.ViewportTransform;
 import io.github.saefalasalynbtel198.shcport.core.XwdFramebuffer;
@@ -103,6 +104,9 @@ final class FramebufferRenderer implements GLSurfaceView.Renderer {
         lastSignature = Long.MIN_VALUE;
     }
 
+    /** Not the display test pattern (the game): detect changes over the whole frame, no pattern check. */
+    volatile boolean wholeFrame;
+
     @Override
     public void onSurfaceChanged(GL10 unused, int width, int height) {
         viewW = Math.max(1, width);
@@ -133,9 +137,11 @@ final class FramebufferRenderer implements GLSurfaceView.Renderer {
             textureAllocated = true;
             lastSignature = Long.MIN_VALUE;
         }
-        // Upload when the picture changed (counter strip, moving band) or at least every 250 ms.
-        long counter = DisplayTestPattern.decodeCounter(fb, mapped);
-        long sig = DisplayTestPattern.bandSignature(fb, mapped) * 31 + counter;
+        // Upload when the picture changed (test pattern: counter strip and moving band; any other program: a
+        // 128x96 sample grid of the whole frame) or at least every 250 ms.
+        long counter = wholeFrame ? -1 : DisplayTestPattern.decodeCounter(fb, mapped);
+        long sig = wholeFrame ? FrameProbe.signature(fb, mapped, 128, 96)
+                : DisplayTestPattern.bandSignature(fb, mapped) * 31 + counter;
         if (sig != lastSignature || now - lastUploadMs >= 250) {
             long t0 = System.nanoTime();
             GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, texture);
@@ -172,7 +178,7 @@ final class FramebufferRenderer implements GLSurfaceView.Renderer {
         stats.displayFps = drawn.perSecond(now);
         stats.uploadsPerSecond = uploads.perSecond(now);
         stats.contentFps = content.perSecond(now);
-        if (now - lastCheckMs >= 1000) {
+        if (!wholeFrame && now - lastCheckMs >= 1000) {
             lastCheckMs = now;
             DisplayTestPattern.Check c = DisplayTestPattern.checkQuadrants(fb, mapped);
             stats.pixelOk = c.ok;

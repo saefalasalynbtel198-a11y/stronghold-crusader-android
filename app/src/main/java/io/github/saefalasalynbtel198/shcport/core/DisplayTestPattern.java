@@ -34,8 +34,20 @@ public final class DisplayTestPattern {
         }
     }
 
-    /** Checks the four quadrant colours (9 points each). */
+    /**
+     * Colours of the runtime's DirectDraw smoke program (win/shc-gui-smoke.exe ddraw) after cnc-ddraw converts its
+     * RGB565 surface: magenta F81F, cyan 07FF, white FFFF, grey 8410; either bit expansion is within the tolerance.
+     */
+    public static final int[] DDRAW_COLORS = {0xff00ff, 0x00ffff, 0xffffff, 0x848284};
+    public static final String[] DDRAW_NAMES = {"top-left magenta", "top-right cyan", "bottom-left white", "bottom-right grey"};
+
+    /** Checks the four quadrant colours of the display test program (9 points each). */
     public static Check checkQuadrants(XwdFramebuffer fb, ByteBuffer file) {
+        return checkQuadrants(fb, file, COLORS, NAMES);
+    }
+
+    /** Checks four quadrant colours (9 points each). */
+    public static Check checkQuadrants(XwdFramebuffer fb, ByteBuffer file, int[] colors, String[] names) {
         if (fb.width != WIDTH || fb.height != HEIGHT) {
             return new Check(false, "framebuffer is " + fb.width + "x" + fb.height + ", expected 1024x768");
         }
@@ -48,11 +60,11 @@ public final class DisplayTestPattern {
                 for (int fy = 1; fy <= 3; fy++) {
                     int c = fb.rgb(file, x0 + WIDTH / 2 * fx / 4, y0 + HEIGHT / 2 * fy / 4);
                     if (fx == 2 && fy == 2) centre = c;
-                    if (!close(c, COLORS[q])) bad++;
+                    if (!close(c, colors[q])) bad++;
                 }
             }
             ok &= bad == 0;
-            sb.append(String.format(Locale.ROOT, "%s: centre #%06x %s; ", NAMES[q], centre,
+            sb.append(String.format(Locale.ROOT, "%s: centre #%06x %s; ", names[q], centre,
                     bad == 0 ? "OK" : bad + "/9 points wrong"));
         }
         return new Check(ok, sb.toString().trim());

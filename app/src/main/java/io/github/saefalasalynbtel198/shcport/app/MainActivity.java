@@ -41,8 +41,10 @@ public final class MainActivity extends Activity implements GameImporter.Listene
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         // Debug builds only: lets the CI emulator test open the (not exported) display test screen.
-        if (BuildConfig.DEBUG && savedInstanceState == null && "display-test".equals(getIntent().getStringExtra("shc.open"))) {
-            startActivity(new android.content.Intent(this, DisplayTestActivity.class));
+        String open = getIntent().getStringExtra("shc.open");
+        if (BuildConfig.DEBUG && savedInstanceState == null && ("display-test".equals(open) || "game-launch".equals(open))) {
+            startActivity(new android.content.Intent(this, DisplayTestActivity.class)
+                    .putExtra(DisplayTestActivity.EXTRA_MODE, "game-launch".equals(open) ? DisplayTestActivity.MODE_GAME : DisplayTestActivity.MODE_DISPLAY));
         }
         app = (ShcApplication) getApplication();
 
