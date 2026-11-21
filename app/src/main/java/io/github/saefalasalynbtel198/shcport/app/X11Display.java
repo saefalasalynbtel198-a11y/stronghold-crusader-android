@@ -8,22 +8,24 @@ import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
-import java.util.concurrent.TimeUnit;
 
 import io.github.saefalasalynbtel198.shcport.core.RuntimeLayout;
 import io.github.saefalasalynbtel198.shcport.core.X11DisplayPlan;
+import io.github.saefalasalynbtel198.shcport.core.XvfbStarter;
 
 /**
- * The runtime's Xvfb as a child of the app (BUILD 3 phase 3). Started from the private runtime directory with the
- * CI-proven flags ({@link X11DisplayPlan}) and -displayfd (no lock file: Android forbids the hard link it needs);
- * ready when Xvfb reports its display number on the -displayfd pipe and this app can connect to its abstract socket
- * (which also shows that SELinux lets app processes talk to it). Blocking: call from a background thread.
+ * The runtime's Xvfb as a child of the app (BUILD 3 phase 3). Started directly through the runtime loader (no shell)
+ * from the private runtime directory with the CI-proven flags ({@link X11DisplayPlan}) and -displayfd 1 (no lock
+ * file: Android forbids the hard link it needs); ready when Xvfb writes its display number to its stdout pipe and
+ * this app can connect to its abstract socket ({@link XvfbStarter}). Blocking: call from a background thread.
  */
 final class X11Display {
     final RuntimeLayout rt;
     final File fbDir;
     final File log;
     Process process;
+    XvfbStarter.ReadyReader stdout;
+    List<String> attempts = java.util.Collections.emptyList();
     int display = -1;
     List<String> argv;
     long readyMs = -1;
@@ -66,7 +68,7 @@ final class X11Display {
             sb.append("hard link: allowed; ");
         } catch (android.system.ErrnoException e) {
             sb.append("hard link: DENIED (").append(android.system.OsConstants.errnoName(e.errno))
-                    .append(") - expected on Android: SELinux never allows apps hard links; Xvfb runs with -displayfd, so it needs none; ");
+                    .append(") - expected on Android: SELinux never allows apps hard links; Xvfb runs with -displayfd 1, so it needs none; ");
         }
         //noinspection ResultOfMethodCallIgnored
         link.delete();
@@ -80,87 +82,50 @@ final class X11Display {
         //noinspection ResultOfMethodCallIgnored
         fbDir.mkdirs();
         removeLegacyLocks();
-        StringBuilder why = new StringBuilder();
-        for (int d = X11DisplayPlan.FIRST_DISPLAY; d <= X11DisplayPlan.LAST_DISPLAY; d++) {
-            if (canConnect(d)) {           // another app (or a leftover of ours) already serves this display
-                why.append(":").append(d).append(" in use; ");
-                continue;
-            }
-            argv = X11DisplayPlan.launchArgv(X11DisplayPlan.ANDROID_SHELL, rt, d, fbDir);
+        XvfbStarter.Result r = XvfbStarter.start(new AndroidHost(), X11DisplayPlan.FIRST_DISPLAY, X11DisplayPlan.LAST_DISPLAY, timeoutMs);
+        attempts = r.attempts;
+        if (!r.ok()) return r.error;
+        process = r.process;
+        stdout = r.stdout;
+        display = r.display;
+        readyMs = r.readyMs;
+        return null;
+    }
+
+    /** The Android side of {@link XvfbStarter}: ProcessBuilder without a shell, stderr into the session log. */
+    private final class AndroidHost implements XvfbStarter.Host {
+        private long logOffset;
+
+        @Override public boolean displayAnswers(int d) { return canConnect(d); }
+
+        @Override public Process launch(int d) throws IOException {
+            argv = X11DisplayPlan.xvfbArgv(rt, d, fbDir);
+            logOffset = log.length();
             ProcessBuilder pb = new ProcessBuilder(argv).directory(X11DisplayPlan.xvfbWorkingDir(rt))
-                    .redirectError(ProcessBuilder.Redirect.appendTo(log));   // stdout = the -displayfd pipe
-            pb.environment().remove("LD_LIBRARY_PATH");   // the loader gets --library-path; /bin/sh (bionic) needs none
-            long t0 = System.currentTimeMillis();
-            try {
-                process = pb.start();
-            } catch (IOException e) {
-                return "could not start Xvfb: " + e.getMessage();
-            }
-            final Process p = process;
-            final String[] ready = new String[1];
-            Thread reader = new Thread(() -> {
-                try (java.io.BufferedReader r = new java.io.BufferedReader(new java.io.InputStreamReader(p.getInputStream(), StandardCharsets.UTF_8))) {
-                    String line = r.readLine();
-                    synchronized (ready) { ready[0] = line == null ? "" : line; ready.notifyAll(); }
-                } catch (IOException e) {
-                    synchronized (ready) { ready[0] = ""; ready.notifyAll(); }
-                }
-            }, "xvfb-displayfd");
-            reader.start();
-            long deadline = t0 + timeoutMs;
-            synchronized (ready) {
-                while (ready[0] == null && System.currentTimeMillis() < deadline) ready.wait(200);
-            }
-            String line = ready[0];
-            int reported = X11DisplayPlan.parseReadyLine(line);
-            if (reported == d) {
-                readyMs = System.currentTimeMillis() - t0;
-                display = d;
-                // The X server says it is ready; this app must also be able to connect (SELinux, abstract socket).
-                if (!canConnect(d)) {
-                    stop();
-                    return "Xvfb reported display :" + d + " ready, but this app cannot connect to @"
-                            + X11DisplayPlan.abstractSocketName(d);
-                }
-                return null;
-            }
-            if (line == null) {          // nothing reported in time
-                stop();
-                return "Xvfb did not report ready within " + timeoutMs / 1000 + " s";
-            }
-            try {
-                p.waitFor(5, java.util.concurrent.TimeUnit.SECONDS);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
-            if (p.isAlive()) {
-                stop();
-                return "Xvfb reported \"" + line + "\" instead of display " + d;
-            }
-            String tail = logTail(4000);
-            int code = p.exitValue();
-            process = null;
-            if (X11DisplayPlan.classify(tail) == X11DisplayPlan.StartFailure.DISPLAY_IN_USE) {
-                why.append(":").append(d).append(" in use (Xvfb could not bind its socket); ");
-                continue;
-            }
-            return "Xvfb exited with code " + code + " (" + io.github.saefalasalynbtel198.shcport.core.RuntimeProbe.describeExit(code) + ")";
+                    .redirectOutput(ProcessBuilder.Redirect.PIPE)                // stdout: only the display number
+                    .redirectError(ProcessBuilder.Redirect.appendTo(log));       // stderr: diagnostics, kept apart
+            pb.environment().remove("LD_LIBRARY_PATH");   // the loader gets --library-path
+            return pb.start();
         }
-        return "no free display between :" + X11DisplayPlan.FIRST_DISPLAY + " and :" + X11DisplayPlan.LAST_DISPLAY + " (" + why + ")";
+
+        @Override public String errorLog(int d) { return logSince(logOffset, 16000); }
+
+        @Override public void log(String line) { }
     }
 
     boolean isRunning() { return process != null && process.isAlive(); }
 
     Integer exitCode() { return process != null && !process.isAlive() ? process.exitValue() : null; }
 
-    void stop() {
+    /** SIGTERM (Xvfb removes its framebuffer file), SIGKILL after 3 s; true if Xvfb has ended. */
+    boolean stop() {
         Process p = process;
-        if (p == null) return;
-        p.destroy();   // SIGTERM: Xvfb removes its lock file and framebuffer file
+        if (p == null) return true;
         try {
-            if (!p.waitFor(3, TimeUnit.SECONDS)) p.destroyForcibly().waitFor(2, TimeUnit.SECONDS);
+            return XvfbStarter.stop(p);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
+            return !p.isAlive();
         }
     }
 
@@ -185,6 +150,20 @@ final class X11Display {
     }
 
     final StringBuilder removedLocks = new StringBuilder();
+
+    /** Log text written since the given offset (the current start attempt), at most max bytes from its end. */
+    String logSince(long offset, int max) {
+        try (RandomAccessFile f = new RandomAccessFile(log, "r")) {
+            long len = f.length();
+            long from = Math.max(Math.min(offset, len), len - max);
+            byte[] b = new byte[(int) (len - from)];
+            f.seek(from);
+            f.readFully(b);
+            return new String(b, StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            return "";
+        }
+    }
 
     String logTail(int max) {
         try (RandomAccessFile f = new RandomAccessFile(log, "r")) {

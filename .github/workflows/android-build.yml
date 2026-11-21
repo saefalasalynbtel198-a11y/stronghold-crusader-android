@@ -181,10 +181,10 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
-      - name: Install tools (qemu-user, mingw)
+      - name: Install tools (qemu-user, mingw; mksh = Android's /system/bin/sh and native Xvfb for the fd-3 reproduction)
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends qemu-user-static binfmt-support gcc-mingw-w64-i686
+          sudo apt-get install -y --no-install-recommends qemu-user-static binfmt-support gcc-mingw-w64-i686 mksh xvfb
       - name: Build shc-display-test.exe (as for the APK)
         run: |
           mkdir -p out

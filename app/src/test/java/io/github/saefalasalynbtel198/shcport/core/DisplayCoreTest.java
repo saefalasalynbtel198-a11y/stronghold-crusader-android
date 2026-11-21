@@ -131,7 +131,7 @@ public class DisplayCoreTest {
             assertTrue(flag, all.contains(flag));
         }
         assertFalse(all.contains("-nolock"));     // root-only in Xvfb; ignored for apps
-        assertTrue(all.endsWith("-displayfd 3"));  // no lock file: Android forbids the hard link it needs
+        assertTrue(all.endsWith("-displayfd 1"));  // no lock file (Android forbids the hard link); stdout pipe
         assertEquals(new File("/rt/x11"), X11DisplayPlan.xvfbWorkingDir(rt));
         assertEquals("/tmp/.X11-unix/X37", X11DisplayPlan.abstractSocketName(37));
         assertEquals(new File("/f/fb1/Xvfb_screen0"), X11DisplayPlan.framebufferFile(new File("/f/fb1")));
@@ -153,25 +153,22 @@ public class DisplayCoreTest {
     }
 
     @Test
-    public void xvfbIsLaunchedWithoutLockFileThroughTheDisplayFdWrapper() {
+    public void xvfbIsLaunchedDirectlyWithDisplayFdOnStdout() {
         RuntimeLayout rt = new RuntimeLayout(new File("/rt"));
-        List<String> a = X11DisplayPlan.launchArgv(X11DisplayPlan.ANDROID_SHELL, rt, 38, new File("/f"));
-        assertEquals(java.util.Arrays.asList("/system/bin/sh", "-c", "exec 3>&1 1>/dev/null; exec \"$@\"", "xvfb"),
-                a.subList(0, 4));
-        assertEquals(X11DisplayPlan.xvfbArgv(rt, 38, new File("/f")), a.subList(4, a.size()));
-        assertTrue(a.contains(":38"));
-        int i = a.indexOf("-displayfd");
-        assertEquals("3", a.get(i + 1));
+        List<String> a = X11DisplayPlan.xvfbArgv(rt, 38, new File("/f"));
+        // the exact vector ProcessBuilder runs: the runtime loader first, no shell, no fd-3 redirection
+        assertEquals(java.util.Arrays.asList(
+                "/rt/lib/aarch64-linux-gnu/ld-linux-aarch64.so.1", "--library-path", "/rt/lib/aarch64-linux-gnu",
+                "/rt/x11/Xvfb", ":38", "-screen", "0", "1024x768x24", "-fbdir", "/f",
+                "-nolisten", "tcp", "-nolisten", "unix", "-extension", "MIT-SHM", "-extension", "GLX",
+                "-ac", "-fp", "built-ins", "-xkbdir", "/rt/x11/share/X11/xkb", "-displayfd", "1"), a);
+        assertEquals(1, X11DisplayPlan.DISPLAY_FD);
+        assertFalse(a.contains("-nolock"));
+        for (String s : a) assertFalse(s, s.contains("/system/bin/sh") || s.contains("3>&1"));
     }
 
     @Test
-    public void readsTheReadyLineAndClassifiesStartFailures() {
-        assertEquals(37, X11DisplayPlan.parseReadyLine("37\n"));
-        assertEquals(40, X11DisplayPlan.parseReadyLine(" 40 "));
-        assertEquals(-1, X11DisplayPlan.parseReadyLine(null));
-        assertEquals(-1, X11DisplayPlan.parseReadyLine(""));
-        assertEquals(-1, X11DisplayPlan.parseReadyLine("Fatal server error"));
-        assertEquals(-1, X11DisplayPlan.parseReadyLine("123456"));
+    public void classifiesStartFailures() {
         assertEquals(X11DisplayPlan.StartFailure.DISPLAY_IN_USE, X11DisplayPlan.classify(
                 "_XSERVTransSocketLocalCreateListener: failed\nFatal server error:\n(EE) Cannot establish any listening sockets - Make sure an X server isn't already running"));
         assertEquals(X11DisplayPlan.StartFailure.DISPLAY_IN_USE, X11DisplayPlan.classify("Server is already active for display 37"));

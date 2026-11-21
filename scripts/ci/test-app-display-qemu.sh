@@ -1,16 +1,18 @@
 #!/usr/bin/env bash
 # BUILD 3 step 3.2, CI part: the display path with the app's own code (scripts/ci/DisplayCli.java -> core/), on
-# the unchanged runtime r6, under qemu-aarch64. Linux emulation, NOT Android (no seccomp/SELinux enforcement).
-#   0. Android forbids apps to create hard links (SELinux); here link/linkat fail with EACCES (deny-link):
-#      the old Xvfb command line (lock file) must reproduce the device error, the app's command line must not
-#   1. Xvfb with the app's launch command (shell wrapper, -displayfd 3, cwd from X11DisplayPlan), in a mount
-#      namespace where /tmp, /var, /usr/lib/xorg and /usr/share/X11 are empty and read-only; ready = the display
-#      number on the -displayfd pipe, read with the app's parser; no link syscall at all
-#   2. display in use: a second Xvfb on the same display is refused and classified as "in use" by the app's code
+# the unchanged runtime r6, under qemu-aarch64. Linux emulation, NOT Android (no SELinux; seccomp only as below).
+#   0. regressions of the two device failures:
+#      a. Android forbids apps hard links (SELinux); deny-link makes link/linkat fail with EACCES: the old command
+#         line (lock file) must fail with the device message "Linking lock file ... Permission denied"
+#      b. Android's /system/bin/sh is mksh, which closes descriptors above 2 opened by "exec" on exec: the 0.3.3
+#         wrapper (exec 3>&1; exec Xvfb -displayfd 3) must fail with "Cannot write display number to fd 3"
+#   1. the app's XvfbStarter starts the runtime's Xvfb with the app's argv (loader, no shell, -displayfd 1), as the
+#      app user, hard links denied, /tmp /var /usr/lib/xorg /usr/share/X11 empty and read-only; display :37
+#   2. occupied displays: Xvfb refuses the busy :37 -> :38; busy displays skipped -> :39, :40; all busy -> error
 #   3. xdpyinfo; wineboot (no display); shc-display-test.exe with the app's Wine environment and DISPLAY
 #   4. framebuffer read with the app's XWD parser through a read-only mapping: 4 quadrants, counter, motion
-#   5. stop, then start again on the same display (no stale lock state)
-#   6. every syscall of every process checked against Android's arm64 app allowlist
+#   5. start/stop cycles with the app's code: stdout closed after the number, process ended, socket gone
+#   6. no link syscall in any Xvfb started by the app's code; every syscall checked against Android's arm64 allowlist
 # Usage: test-app-display-qemu.sh <shc-runtime-r6-*.zip> <shc-display-test.exe> <work dir>
 set -uo pipefail
 ZIP="$(realpath "${1:?runtime zip}")"
@@ -18,77 +20,70 @@ EXE="$(realpath "${2:?shc-display-test.exe}")"
 W="$(mkdir -p "${3:?work dir}" && realpath "$3")"
 repo="$(cd "$(dirname "$0")/../.." && pwd)"
 core="$repo/app/src/main/java/io/github/saefalasalynbtel198/shcport/core"
-rt="$W/runtime"; st="$W/strace"; fb="$W/fb-session1"
-rm -rf "$rt" "$st" "$fb" "$W/prefix" "$W/classes"; mkdir -p "$st" "$W/home" "$W/tmp" "$W/classes"
+rt="$W/runtime"; st="$W/strace"; logs="$W/xvfb-logs"
+rm -rf "$rt" "$st" "$logs" "$W"/fb-* "$W/prefix" "$W/classes"; mkdir -p "$st" "$logs" "$W/home" "$W/tmp" "$W/classes"
+chmod 0777 "$logs"
 result() { echo "RESULT $1: $2" | tee -a "$W/results.txt"; }
 : > "$W/results.txt"
 [ -z "${LD_PRELOAD:-}" ] || { echo "::error::LD_PRELOAD set"; exit 1; }
 
-javac -d "$W/classes" -sourcepath "$repo/app/src/main/java" "$core/RuntimeArchive.java" "$core/ElfInterp.java" \
-  "$core/RuntimeLayout.java" "$core/X11DisplayPlan.java" "$core/XwdFramebuffer.java" "$core/DisplayTestPattern.java" \
+javac -d "$W/classes" -sourcepath "$repo/app/src/main/java" "$core"/*.java \
   "$repo/scripts/ci/ExtractRuntime.java" "$repo/scripts/ci/DisplayCli.java" || exit 1
-cli() { java -cp "$W/classes" DisplayCli "$@"; }
+cli() { java -cp "$W/classes" DisplayCli "$@" 2> >(grep -v "^Picked up" >&2); }
 java -cp "$W/classes" ExtractRuntime "$ZIP" "$rt" patch-interp || exit 1
 cat "$rt/RUNTIME_VERSION"
-D=37
 gcc -O2 -Wall -Werror -o "$W/deny-link" "$repo/scripts/ci/deny-link.c" || exit 1
-XCWD=$(cli xvfb-cwd "$rt"); SOCK=$(cli socket $D)
+XCWD=$(cli xvfb-cwd "$rt")
+ANDROID_LIKE=(sudo --preserve-env unshare --mount -- "$repo/scripts/ci/android-like-exec.sh" "$W/deny-link")
+alive() { pgrep -u "$(id -u)" -f "x11/Xvfb :$1 " > /dev/null; }
+listening() { grep -q "@$(cli socket "$1")\$" /proc/net/unix; }
 
-# runs one Xvfb as the app user in the Android-like mount namespace with hard links denied
-#   start_xvfb <argv file (NUL separated)> <stdout file> <stderr file> <strace prefix>
-start_xvfb() {
-  SPIKE_CWD="$XCWD" SPIKE_ARGV="$1" SPIKE_ST="$4" SPIKE_DENY="$W/deny-link" sudo --preserve-env unshare --mount -- bash -c '
-    for d in /tmp /var /usr/lib/xorg /usr/share/X11; do [ -d "$d" ] && mount -t tmpfs -o ro,size=4k,mode=0555 none "$d"; done
-    cd "$SPIKE_CWD"
-    mapfile -d "" -t A < "$SPIKE_ARGV"
-    exec setpriv --reuid="$SUDO_UID" --regid="$SUDO_GID" --init-groups env -u LD_LIBRARY_PATH \
-      QEMU_STRACE=1 QEMU_LOG_FILENAME="$SPIKE_ST.%d" "$SPIKE_DENY" "${A[@]}"' > "$2" 2> "$3" &
-}
-xvfb_alive() { pgrep -u "$(id -u)" -f "Xvfb :$D" > /dev/null; }
+echo "== 0a. old command line (lock file), hard links denied: must reproduce the first device error"
+mkdir -p "$W/fb-old"
+mapfile -t OLD < <(cli xvfb-argv "$rt" 37 "$W/fb-old" | sed '/^-displayfd$/,$d')
+echo "old argv: ${OLD[*]}"
+(cd "$XCWD" && QEMU_STRACE=1 QEMU_LOG_FILENAME="$st/repro-lock.%d" exec timeout 300 "${ANDROID_LIKE[@]}" "${OLD[@]}") > /dev/null 2> "$W/repro-lock.log"
+grep "Linking lock file" "$W/repro-lock.log"
+if grep -q "Linking lock file (./.X37-lock) in place failed: Permission denied" "$W/repro-lock.log"; then
+  result repro-lock "PASS (old command fails as on the device: Linking lock file (./.X37-lock) in place failed: Permission denied)"
+else result repro-lock "FAIL (device error not reproduced)"; tail -20 "$W/repro-lock.log"; fi
+rm -f "$XCWD/.X37-lock" "$XCWD/.tX37-lock"
 
-echo "== 0. old command line (lock file) with hard links denied: must reproduce the device error"
-mapfile -t OLD < <(cli xvfb-argv "$rt" $D "$fb" | grep -v -- "-displayfd" | grep -vx "3")
-printf '%s\0' "${OLD[@]}" > "$W/old.argv0"
-mkdir -p "$fb"
-start_xvfb "$W/old.argv0" "$W/old.out" "$W/old.log" "$st/old"
-for i in $(seq 1 120); do sleep 1; [ "$i" -gt 5 ] && ! xvfb_alive && break; done
-grep "Linking lock file" "$W/old.log"
-if grep -q "Linking lock file (./.X$D-lock) in place failed: Permission denied" "$W/old.log"; then
-  result reproduce "PASS (old command fails exactly as on the device: Linking lock file (./.X$D-lock) in place failed: Permission denied)"
-else result reproduce "FAIL (device error not reproduced)"; tail -20 "$W/old.log"; fi
-pkill -u "$(id -u)" -f "Xvfb :$D"; sleep 1
-rm -f "$XCWD/.X$D-lock" "$XCWD/.tX$D-lock"
-
-echo "== 1. the app's launch command (-displayfd), hard links still denied"
-mapfile -t LAUNCH < <(cli launch-argv /bin/sh "$rt" $D "$fb")
-echo "app's launch command: ${LAUNCH[*]} (cwd $XCWD)"
-printf '%s\0' "${LAUNCH[@]}" > "$W/xvfb.argv0"
-start_xvfb "$W/xvfb.argv0" "$W/displayfd.out" "$W/xvfb.log" "$st/xvfb"
-up=0
-for i in $(seq 1 300); do
-  r=$(cli ready "$(head -n1 "$W/displayfd.out" 2>/dev/null)")
-  [ "$r" = "$D" ] && { up=1; break; }
-  [ "$i" -gt 15 ] && ! xvfb_alive && break
-  sleep 1
+echo "== 0b. the 0.3.3 wrapper under mksh (Android's /system/bin/sh): must reproduce the second device error"
+WRAP='exec 3>&1 1>/dev/null; exec "$@"'
+for sh in dash mksh; do
+  printf '%s: ' "$sh"; $sh -c "$WRAP" x sh -c '[ -e /proc/self/fd/3 ] && echo "fd 3 open after exec" || echo "fd 3 CLOSED after exec"'
 done
-links=$(cat "$st"/xvfb.* 2>/dev/null | grep -cE " (link|linkat)\(")
-locks=$(ls -a "$XCWD" | grep -c "X$D-lock")
-grep -q "@$SOCK" /proc/net/unix && sock=yes || sock=no
-if [ $up -eq 1 ] && [ "$links" -eq 0 ] && [ "$locks" -eq 0 ] && [ $sock = yes ]; then
-  result xvfb "PASS (ready line \"$D\" on the -displayfd pipe after ${i}s; abstract socket @$SOCK; 0 link calls; no lock file)"
-else result xvfb "FAIL (ready=$up links=$links lockfiles=$locks socket=$sock)"; cat "$W/xvfb.log"; fi
+mksh -c "$WRAP" x sh -c '[ -e /proc/self/fd/3 ]' && fd3=open || fd3=closed
+timeout 60 mksh -c "$WRAP" xvfb Xvfb :61 -nolisten tcp -displayfd 3 > "$W/repro-fd3.out" 2> "$W/repro-fd3.log"; rc=$?
+grep "Cannot write display number" "$W/repro-fd3.log"
+if [ $fd3 = closed ] && grep -q "Cannot write display number to fd 3" "$W/repro-fd3.log" && [ ! -s "$W/repro-fd3.out" ]; then
+  result repro-fd3 "PASS (mksh closes fd 3 on exec; Xvfb behind the 0.3.3 wrapper exits $rc with: Cannot write display number to fd 3)"
+else result repro-fd3 "FAIL (fd 3 $fd3 after mksh exec; Xvfb exit $rc)"; tail -10 "$W/repro-fd3.log"; fi
+pkill -f "Xvfb :61" 2> /dev/null
 
-echo "== 2. display in use: a second Xvfb on :$D"
-mkdir -p "$W/fb-second"
-mapfile -t SECOND < <(cli launch-argv /bin/sh "$rt" $D "$W/fb-second")
-printf '%s\0' "${SECOND[@]}" > "$W/second.argv0"
-start_xvfb "$W/second.argv0" "$W/second.out" "$W/second.log" "$st/second"
-sleep 20
-grep -E "Cannot establish|already" "$W/second.log" | head -3
-cls=$(cli classify "$W/second.log")
-if [ "$cls" = DISPLAY_IN_USE ] && [ -z "$(cat "$W/second.out")" ]; then
-  result in-use "PASS (second Xvfb refused, app classifies it as $cls and would try :$((D + 1)))"
-else result in-use "FAIL (classified $cls, reported '$(cat "$W/second.out")')"; fi
+echo "== 1. the app's XvfbStarter: argv without shell, -displayfd 1, Android-like environment"
+QEMU_STRACE=1 QEMU_LOG_FILENAME="$st/xvfb-main.%d" cli start "$rt" "$W/fb-main" "$logs" 37 40 -- "${ANDROID_LIKE[@]}" | tee "$W/start-main.txt"
+D=$(sed -n 's/^display //p' "$W/start-main.txt"); fb="$W/fb-main/$D"
+if [ "$D" = 37 ] && grep -q '"-displayfd", "1"\]' "$W/start-main.txt" && ! grep -q "/bin/sh" "$W/start-main.txt" \
+   && [ "$(ls -a "$XCWD" | grep -c -- "-lock")" -eq 0 ] && listening 37; then
+  result xvfb "PASS (display 37 from the -displayfd 1 line on stdout after $(sed -n 's/^ready-ms //p' "$W/start-main.txt") ms; argv has no shell; no lock file; socket listening)"
+else result xvfb "FAIL"; cat "$logs"/xvfb-37-*.log; fi
+
+echo "== 2. occupied displays (:37 is held by step 1)"
+occ() { QEMU_STRACE=1 QEMU_LOG_FILENAME="$st/xvfb-occ$1.%d" cli start "$rt" "$W/fb-occ$1" "$logs" 37 40 "${@:2}" -- "$W/deny-link" > "$W/occ$1.txt"; echo $?; }
+r1=$(occ 1 --no-probe); r2=$(occ 2); r3=$(occ 3); r4=$(occ 4)
+for i in 1 2 3 4; do grep -E "^(attempt|display|error|stdout)" "$W/occ$i.txt" | sed "s/^/  [$i] /"; done
+d1=$(sed -n 's/^display //p' "$W/occ1.txt"); d2=$(sed -n 's/^display //p' "$W/occ2.txt"); d3=$(sed -n 's/^display //p' "$W/occ3.txt")
+if [ "$r1$d1" = 038 ] && grep -q ":37 in use (Xvfb could not bind" "$W/occ1.txt" && [ "$r2$d2" = 039 ] && [ "$r3$d3" = 040 ] \
+   && [ "$r4" = 2 ] && grep -q "error no free display between :37 and :40" "$W/occ4.txt" \
+   && grep -q "Cannot establish any listening sockets" "$logs"/xvfb-37-*.log && grep -q "^stdout closed after the display number" "$W/occ1.txt"; then
+  result occupied "PASS (Xvfb refused busy :37 -> :38; busy displays skipped -> :39, :40; all four busy -> 'no free display'; stdout closed after the number)"
+else result occupied "FAIL (exit/display: $r1/$d1 $r2/$d2 $r3/$d3 $r4)"; fi
+pkill -u "$(id -u)" -f "x11/Xvfb :(38|39|40) "; sleep 3
+if ! alive 38 && ! alive 39 && ! alive 40 && ! listening 38 && ! listening 39 && ! listening 40; then
+  result occupied-cleanup "PASS (:38-:40 stopped, sockets gone)"
+else result occupied-cleanup "FAIL"; fi
 
 mapfile -t XD < <(cli xdpyinfo-argv "$rt" $D)
 timeout 300 "${XD[@]}" > "$W/xdpyinfo.log" 2>&1 && result xdpyinfo "PASS ($(grep -c '^    ' "$W/xdpyinfo.log") extension lines; MIT-SHM $(grep -q 'MIT-SHM' "$W/xdpyinfo.log" && echo present || echo absent))" \
@@ -128,31 +123,24 @@ python3 -I "$repo/runtime/display/check-fb.py" "$fb/Xvfb_screen0" none "$W/displ
 grep "display-test:" "$W/display-test.log" | head -8
 
 timeout 120 "$box64" "$wineserver" -k > /dev/null 2>&1; wait $wpid; echo "test program exit $?"
-pkill -u "$(id -u)" -f "Xvfb :$D"; sleep 2
-xvfb_alive && result stop "FAIL (Xvfb still running)" || result stop "PASS (Xvfb stopped on SIGTERM)"
+pkill -u "$(id -u)" -f "x11/Xvfb :$D "; sleep 3
+alive $D && result stop "FAIL (Xvfb still running)" || result stop "PASS (Xvfb stopped on SIGTERM)"
 [ -e "$fb/Xvfb_screen0" ] && echo "framebuffer file still present after stop" || echo "framebuffer file removed by Xvfb on exit"
 
-echo "== 5. start again on the same display (repeated start/stop, nothing stale)"
-for round in 2 3; do
-  mkdir -p "$W/fb-round$round"
-  mapfile -t AGAIN < <(cli launch-argv /bin/sh "$rt" $D "$W/fb-round$round")
-  printf '%s\0' "${AGAIN[@]}" > "$W/again.argv0"
-  start_xvfb "$W/again.argv0" "$W/again$round.out" "$W/again$round.log" "$st/again$round"
-  ok=0
-  for i in $(seq 1 120); do
-    [ "$(cli ready "$(head -n1 "$W/again$round.out" 2>/dev/null)")" = "$D" ] && { ok=1; break; }
-    sleep 1
-  done
-  pkill -u "$(id -u)" -f "Xvfb :$D"; sleep 2
-  if [ $ok -eq 1 ] && ! xvfb_alive; then result "restart-$round" "PASS (:$D ready again after ${i}s, stopped again)"
-  else result "restart-$round" "FAIL"; tail -10 "$W/again$round.log"; fi
-done
+echo "== 5. start/stop cycles with the app's code (stop = the app's SIGTERM, then SIGKILL after 3 s)"
+QEMU_STRACE=1 QEMU_LOG_FILENAME="$st/xvfb-cycle.%d" cli cycle "$rt" "$W/fb-cycle" "$logs" 3 -- "$W/deny-link" | grep -v "^argv" | tee "$W/cycle.txt"
+if [ "$(grep -c "^round . PASS" "$W/cycle.txt")" -eq 3 ] && ! alive 37 && ! listening 37; then
+  result cycles "PASS (3 rounds on :37: ready, stdout closed after the number, process ended, socket gone)"
+else result cycles "FAIL"; fi
 
-echo "== 6. Android seccomp check"
-# the old-command run (step 0) is excluded: it exits on the lock error by design
-python3 -I "$repo/runtime/android/check-strace.py" "$repo/runtime/android/arm64-app-syscalls.txt" $(ls "$st"/* | grep -v "/old\.") > "$W/seccomp-check.txt"; sc=$?
+echo "== 6. syscalls"
+links=$(cat "$st"/xvfb-* 2>/dev/null | grep -cE " (link|linkat)\(")
+[ "$links" -eq 0 ] && result no-link "PASS (0 link/linkat calls in $(ls "$st" | grep -c '^xvfb-') traces of Xvfb started by the app's code)" \
+  || result no-link "FAIL ($links link calls)"
+# the reproductions (step 0) exit on their errors by design and are not part of the app's path
+python3 -I "$repo/runtime/android/check-strace.py" "$repo/runtime/android/arm64-app-syscalls.txt" $(ls "$st"/* | grep -v "/repro-") > "$W/seccomp-check.txt"; sc=$?
 grep -v " 0 outside" "$W/seccomp-check.txt"
-[ $sc -eq 0 ] && result seccomp "PASS ($(ls "$st" | wc -l) process traces within Android's arm64 app allowlist)" || result seccomp FAIL
+[ $sc -eq 0 ] && result seccomp "PASS ($(ls "$st" | grep -vc '^repro-') process traces within Android's arm64 app allowlist)" || result seccomp FAIL
 rm -rf "$st"
 echo "== Summary"; cat "$W/results.txt"
 ! grep -q FAIL "$W/results.txt"

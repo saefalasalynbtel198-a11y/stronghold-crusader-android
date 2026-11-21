@@ -127,7 +127,9 @@ final class DisplayTestSession {
         log("Xvfb working directory check: " + x11.preflight());
         String why = x11.start(120_000);
         if (x11.removedLocks.length() > 0) log("removed old lock files (not used with -displayfd): " + x11.removedLocks);
-        log("Xvfb command: " + String.join(" ", x11.argv == null ? new ArrayList<>() : x11.argv));
+        log("Xvfb command (ProcessBuilder argv, no shell; stdout = display-number pipe, stderr = Xvfb log): "
+                + argvForLog(x11.argv));
+        log("display attempts: " + String.join("; ", x11.attempts));
         if (why != null) {
             xvfbStatus = "failed: " + why;
             log("Xvfb log:\n" + x11.logTail(6000));
@@ -137,6 +139,12 @@ final class DisplayTestSession {
         xvfbStatus = "running on " + X11DisplayPlan.displayName(x11.display) + " (abstract socket @"
                 + X11DisplayPlan.abstractSocketName(x11.display) + ", ready after " + x11.readyMs + " ms)";
         log("Xvfb " + xvfbStatus);
+        try {
+            x11.stdout.awaitClosed(2000);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+        log("Xvfb stdout: " + x11.stdout.afterLineSummary());
         File fbFile = x11.framebufferFile();
         log("framebuffer file: " + fbFile + " (" + fbFile.length() + " bytes)");
         xdpyinfoSummary = xdpyinfo();
@@ -237,8 +245,10 @@ final class DisplayTestSession {
         }
         if (x11 != null) {
             boolean wasRunning = x11.isRunning();
-            x11.stop();
-            log("Xvfb stopped (" + (wasRunning ? "was running" : "had exited") + "); log:\n" + x11.logTail(3000));
+            boolean ended = x11.stop();
+            log("Xvfb stopped (" + (wasRunning ? "was running" : "had exited") + "; process "
+                    + (ended ? "ended" : "STILL RUNNING") + "); stdout: "
+                    + (x11.stdout != null ? x11.stdout.afterLineSummary() : "-") + "; log:\n" + x11.logTail(3000));
         }
         state = before == State.FAILED ? State.FAILED : State.STOPPED;
         status = state == State.FAILED ? "Stopped after failure" : "Stopped";
@@ -407,5 +417,13 @@ final class DisplayTestSession {
         }
         //noinspection ResultOfMethodCallIgnored
         f.delete();
+    }
+
+    /** argv as one line, each element quoted, so the exact vector can be checked in the report. */
+    static String argvForLog(java.util.List<String> argv) {
+        if (argv == null) return "(not started)";
+        StringBuilder b = new StringBuilder("[");
+        for (int i = 0; i < argv.size(); i++) b.append(i == 0 ? "" : ", ").append('"').append(argv.get(i)).append('"');
+        return b.append("] (").append(argv.size()).append(" elements)").toString();
     }
 }

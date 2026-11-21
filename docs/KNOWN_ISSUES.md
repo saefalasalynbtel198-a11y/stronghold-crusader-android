@@ -56,7 +56,14 @@
 * Xvfb is a patched copy of Debian's binary (three path strings); if Debian changes the binary layout the patch
   step fails the build instead of producing a broken package.
 
-## Display test (0.3.2-dev.1 / 0.3.3-dev.1)
+## Display test (0.3.2-dev.1 – 0.3.4-dev.1)
+
+* 0.3.3-dev.1 passes the hard-link check on the device but Xvfb fails with "Cannot write display number to fd 3"
+  (Android's mksh closes fd 3 on exec); fixed in 0.3.4-dev.1 (`-displayfd 1`, no shell) — CI-reproduced and
+  CI-tested, not yet device-tested.
+* After writing the display number Xvfb closes its stdout; descriptor 1 can later be reused inside Xvfb (for example
+  by a client connection). Xvfb itself writes its messages to stderr, and xkbcomp writes its result to a file, so
+  nothing is expected on descriptor 1; the report shows any byte that arrives after the number.
 
 * 0.3.2-dev.1 cannot start Xvfb on Android (hard links are forbidden to apps, Xvfb's lock file needs one); fixed
   in 0.3.3-dev.1 (`-displayfd`, no lock file) — CI-reproduced and CI-tested, not yet device-tested.

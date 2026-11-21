@@ -1,5 +1,16 @@
 # Release notes
 
+## 0.3.4-dev.1 — BUILD 3 step 3.2 fix: Xvfb readiness on stdout (development build, not a playable game)
+
+* Fix for the device failure of 0.3.3-dev.1 (`Cannot write display number to fd 3`): Android's `/system/bin/sh`
+  (mksh) closes descriptors above 2 that a script opens with `exec`, so descriptor 3 never reached Xvfb. Xvfb is
+  now started directly through the runtime loader (no shell) with `-displayfd 1`: it writes the display number to
+  its stdout pipe and closes it; its messages stay on stderr, which goes to the log separately.
+* The app accepts only one line of digits that equals the display it started (:37–:40); anything else on stdout is
+  reported and Xvfb is stopped. Output after the number is recorded in the report.
+* Report: the exact argv of Xvfb, each display tried and why, and whether Xvfb closed stdout after the number.
+* Hard-link fix of 0.3.3 kept (no lock file). No runtime change (r6). Start Game stays disabled.
+
 ## 0.3.3-dev.1 — BUILD 3 step 3.2 fix: Xvfb lock file on Android (development build, not a playable game)
 
 * Fix for the device failure of 0.3.2-dev.1 (`Linking lock file (./.X37-lock) in place failed: Permission
