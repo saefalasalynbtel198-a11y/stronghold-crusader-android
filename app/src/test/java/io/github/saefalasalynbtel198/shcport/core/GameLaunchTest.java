@@ -123,4 +123,18 @@ public class GameLaunchTest {
         ByteBuffer file = DisplayCoreTest.xwd(w, h, w * 4, px);   // stride in bytes
         return FrameProbe.sample(XwdFramebuffer.parse(file), file);
     }
+
+    @Test
+    public void ddrawLoadIsRecognisedFromWinesLoaddllTrace() {
+        String log = "0130:trace:loaddll:build_module Loaded L\"C:\\\\windows\\\\system32\\\\dwmapi.dll\" at 7B1E0000: builtin\n"
+                + "gui-smoke: ddraw.dll = C:\\windows\\system32\\ddraw.dll\n"
+                + "0130:trace:loaddll:build_module Loaded L\"C:\\\\windows\\\\system32\\\\ddraw.dll\" at 10000000: native\n";
+        String l = WineLaunchPlan.loadLine(log, "ddraw.dll", true);
+        assertTrue(l, l != null && l.endsWith(": native"));
+        String builtin = log.replace(": native", ": builtin");
+        assertEquals(null, WineLaunchPlan.loadLine(builtin, "ddraw.dll", true));      // Wine's own ddraw: not cnc-ddraw
+        assertTrue(WineLaunchPlan.loadLine(builtin, "ddraw.dll", false).endsWith(": builtin"));
+        assertEquals(null, WineLaunchPlan.loadLine("Loaded L\"C:\\\\x\\\\myddraw.dll\" at 1: native", "ddraw.dll", true));
+        assertEquals(null, WineLaunchPlan.loadLine(null, "ddraw.dll", true));
+    }
 }

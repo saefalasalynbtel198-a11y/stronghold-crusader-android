@@ -291,13 +291,15 @@ public final class DisplayCli {
         System.out.println("game argv: " + quoted(plan.argv) + " cwd " + plan.workingDirectory);
         bad += ddrawRun("game", plan.argv, plan.workingDirectory, plan.env, fb, new File(logs, "game.log"));
         String gameLog = new String(java.nio.file.Files.readAllBytes(new File(logs, "game.log").toPath()), java.nio.charset.StandardCharsets.UTF_8);
-        boolean cwdD = false, nativeDdraw = false;
+        boolean cwdD = false;
+        String ddrawLine = io.github.saefalasalynbtel198.shcport.core.WineLaunchPlan.loadLine(gameLog, "ddraw.dll", false);
+        System.out.println("game ddraw.dll load: " + ddrawLine);
+        boolean nativeDdraw = ddrawLine != null && ddrawLine.toLowerCase(java.util.Locale.ROOT).endsWith(": native");
         for (String l : gameLog.split("\n")) {
             String low = l.toLowerCase(java.util.Locale.ROOT);
-            if (low.contains("syswow64") && low.contains("ddraw.dll") && low.contains("native")) nativeDdraw = true;
             if (low.contains("loaddll") && low.contains("d:") && low.contains(exe.toLowerCase(java.util.Locale.ROOT))) cwdD = true;
         }
-        System.out.println("check +loaddll shows cnc-ddraw native from syswow64: " + (nativeDdraw ? "PASS" : "FAIL"));
+        System.out.println("check +loaddll shows ddraw.dll loaded native (cnc-ddraw from the prefix, not Wine's builtin): " + (nativeDdraw ? "PASS" : "FAIL"));
         if (!nativeDdraw) bad++;
         System.out.println("info: game module loaded from D: " + cwdD);
         boolean iniHere = new File(game, "ddraw.ini").exists() || new File(plan.ddrawTarget.getParentFile(), "ddraw.ini").exists();
@@ -310,7 +312,7 @@ public final class DisplayCli {
         return bad == 0 ? 0 : 1;
     }
 
-    /** Runs a DirectDraw program (shc-gui-smoke ddraw) to its end; PASS = exit 42, cnc-ddraw from syswow64, colours seen. */
+    /** Runs a DirectDraw program (shc-gui-smoke ddraw) to its end; PASS = exit 42, ddraw.dll loaded native (cnc-ddraw), colours seen. */
     private static int ddrawRun(String label, List<String> argv, File cwd, Map<String, String> env, File fb, File log) throws Exception {
         ProcessBuilder pb = new ProcessBuilder(argv).directory(cwd).redirectErrorStream(true).redirectOutput(log);
         pb.environment().remove("LD_LIBRARY_PATH");
@@ -334,7 +336,9 @@ public final class DisplayCli {
         String out = new String(java.nio.file.Files.readAllBytes(log.toPath()), java.nio.charset.StandardCharsets.UTF_8);
         String loaded = "";
         for (String l : out.split("\n")) if (l.contains("gui-smoke: ddraw.dll = ")) loaded = l.substring(l.indexOf('=') + 1).trim();
-        boolean ok = code == 42 && pixels != null && loaded.toLowerCase(java.util.Locale.ROOT).contains("syswow64");
+        String nativeLine = io.github.saefalasalynbtel198.shcport.core.WineLaunchPlan.loadLine(out, "ddraw.dll", true);
+        System.out.println(label + " ddraw.dll load: " + io.github.saefalasalynbtel198.shcport.core.WineLaunchPlan.loadLine(out, "ddraw.dll", false));
+        boolean ok = code == 42 && pixels != null && nativeLine != null;
         System.out.println("check " + label + ": " + (ok ? "PASS" : "FAIL") + " (exit " + code + ", "
                 + (System.currentTimeMillis() - t0) / 1000 + " s, ddraw.dll = " + loaded + ", pixels " + (pixels == null ? "not seen" : "OK: " + pixels) + ")");
         if (!ok) {

@@ -78,6 +78,23 @@ public final class WineLaunchPlan {
                 new File(prefixDir, "drive_c/shc-port/ddraw.ini"), gameDir, exeName);
     }
 
+    /**
+     * The +loaddll line that shows how Wine loaded a DLL ("... Loaded L"C:\\windows\\system32\\ddraw.dll" at
+     * 10000000: native"), or null. A 32-bit process sees C:\windows\syswow64 as C:\windows\system32 (WoW64
+     * file system redirection), so the path alone does not tell syswow64 from system32; "native" (not "builtin")
+     * shows that the file in the prefix, i.e. cnc-ddraw, was loaded and not Wine's own DLL.
+     */
+    public static String loadLine(String wineLog, String dllName, boolean nativeOnly) {
+        if (wineLog == null) return null;
+        String needle = ("\\" + dllName + "\"").toLowerCase(java.util.Locale.ROOT);
+        for (String l : wineLog.split("\n")) {
+            String low = l.toLowerCase(java.util.Locale.ROOT).trim();
+            if (!low.contains("loaddll") || !low.contains("loaded l\"") || !low.contains(needle)) continue;
+            if (!nativeOnly || low.endsWith(": native")) return l.trim();
+        }
+        return null;
+    }
+
     /** Same environment and DirectDraw setup, for a program outside the game folder (the DirectDraw pre-check). */
     public List<String> argvFor(String unixExe, List<String> args) {
         List<String> a = new ArrayList<>(Arrays.asList(argv.get(0), argv.get(1), unixExe));

@@ -160,7 +160,7 @@ QEMU_STRACE=1 QEMU_LOG_FILENAME="$st/game.%d" cli game-launch "$rt" "$prefix" "$
   "$fb/Xvfb_screen0" "$W/game-logs" | tee "$W/game-launch.txt"; rc=$?
 grep -E '^\s+\| .*(loaddll.*(ddraw|Stronghold)|err:)' "$W/game-logs/game.log" 2>/dev/null | head -5
 if [ $rc -eq 0 ] && [ "$(grep -c '^check .*: PASS' "$W/game-launch.txt")" -ge 6 ]; then
-  result game-standin "PASS (app's WineLaunchPlan/GameSetup: D: link, cnc-ddraw native from syswow64, ini via CNC_DDRAW_CONFIG_FILE, pre-check and D:\\ launch drew the 4 DirectDraw colours, exit 42, game folder unchanged)"
+  result game-standin "PASS (app's WineLaunchPlan/GameSetup: D: link, cnc-ddraw in syswow64 loaded native, ini via CNC_DDRAW_CONFIG_FILE, pre-check and D:\\ launch drew the 4 DirectDraw colours, exit 42, game folder unchanged)"
 else result game-standin "FAIL (exit $rc)"; fi
 timeout 120 "$box64" "$wineserver" -k > /dev/null 2>&1
 pkill -u "$(id -u)" -f "x11/Xvfb :$D "; sleep 3

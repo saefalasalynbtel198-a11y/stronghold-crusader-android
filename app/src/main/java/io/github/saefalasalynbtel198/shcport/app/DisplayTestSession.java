@@ -81,6 +81,7 @@ final class DisplayTestSession {
     private int pictureChanges;
     private long lastProbeMs;
     private boolean ddrawNative;
+    private String ddrawLoad;
     private long nextSnapshotS = 15;
     final List<String> snapshots = new ArrayList<>();
     private final java.util.concurrent.ExecutorService snapshotter = java.util.concurrent.Executors.newSingleThreadExecutor();
@@ -308,10 +309,11 @@ final class DisplayTestSession {
         String out = tail(pcLog, 4000);
         String loaded = "";
         for (String l : out.split("\n")) if (l.contains("gui-smoke: ddraw.dll = ")) loaded = l.substring(l.indexOf('=') + 1).trim();
-        boolean fromSys = loaded.toLowerCase(Locale.ROOT).contains("syswow64");
-        boolean ok = code == 42 && seen && fromSys;
-        precheckResult = (ok ? "PASS" : "FAILED") + String.format(Locale.ROOT, " (exit %d, %d s; ddraw.dll = %s; pixels: %s)",
-                code, (SystemClock.uptimeMillis() - t0) / 1000, loaded.isEmpty() ? "not reported" : loaded, pixels);
+        String nativeLine = WineLaunchPlan.loadLine(tail(pcLog, 2_000_000), "ddraw.dll", true);
+        boolean ok = code == 42 && seen && nativeLine != null;
+        precheckResult = (ok ? "PASS" : "FAILED") + String.format(Locale.ROOT, " (exit %d, %d s; ddraw.dll = %s; Wine: %s; pixels: %s)",
+                code, (SystemClock.uptimeMillis() - t0) / 1000, loaded.isEmpty() ? "not reported" : loaded,
+                nativeLine != null ? "loaded native (cnc-ddraw)" : "NO native load of ddraw.dll in the log", pixels);
         log("DirectDraw pre-check: " + precheckResult + "\npre-check output (end):\n" + out);
         if (!ok) { fail("DirectDraw pre-check " + precheckResult + " — the game was not started"); return false; }
 
@@ -371,16 +373,15 @@ final class DisplayTestSession {
                 if (p.nonBlack > 0.02 && state == State.STARTING_WINE) set(State.RUNNING, "Running: game picture on screen (no input yet)");
             }
             if (!ddrawNative) {
-                for (String l : tail(wineLog, 262144).split("\n")) {
-                    String low = l.toLowerCase(Locale.ROOT);
-                    if (low.contains("syswow64") && low.contains("ddraw.dll") && low.contains("native")) {
-                        ddrawNative = true;
-                        log("cnc-ddraw loaded by the game: " + l.trim());
-                        break;
-                    }
+                String l = WineLaunchPlan.loadLine(tail(wineLog, 262144), "ddraw.dll", false);
+                if (l != null) {
+                    ddrawNative = l.toLowerCase(Locale.ROOT).endsWith(": native");
+                    ddrawLoad = l;
+                    log("game loaded ddraw.dll: " + l + (ddrawNative ? " (cnc-ddraw)" : " — NOT cnc-ddraw"));
                 }
             }
-            wineStatus = "running " + (now - gameStartMs) / 1000 + " s; cnc-ddraw " + (ddrawNative ? "loaded (native, syswow64)" : "not loaded yet");
+            wineStatus = "running " + (now - gameStartMs) / 1000 + " s; ddraw.dll " + (ddrawLoad == null ? "not loaded yet"
+                    : ddrawNative ? "= cnc-ddraw (native)" : "= Wine builtin (unexpected)");
         }
         long secs = (now - gameStartMs) / 1000;
         if (secs >= nextSnapshotS && snapshots.size() < 12) {
