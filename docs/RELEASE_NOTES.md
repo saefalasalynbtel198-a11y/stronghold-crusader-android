@@ -2,6 +2,8 @@
 
 ## 0.3.5-dev.1 — BUILD 3 step 3.2 fix: Wine prefix in the display test (development build, not a playable game)
 
+* **Device result (owner, 2026-11-21): display test PASSED** on Xiaomi 25053PC47G, Android 16 (Xvfb :37, Wine window, pixel check, ~27 fps, pause/resume; Wine tests 6/6, self-test 4/4).
+
 * Fix for the device failure of 0.3.4-dev.1 (`wine: chdir to .../files/prefix/wine : No such file or directory`):
   Wine creates only the last directory of WINEPREFIX; the display test never created `files/prefix` (the Wine tests
   and the self-test do). The display test now creates and checks it first.

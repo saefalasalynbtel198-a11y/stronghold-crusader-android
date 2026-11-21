@@ -63,3 +63,9 @@ Xvfb was not started (the display test stops before it when the prefix is missin
   * no Wine process left; then Xvfb, the Windows test program in that prefix, pixels, motion, cycles.
 
 Linux/qemu, not Android: not confirmed until the owner's phone runs it.
+
+## Device result (owner, app 0.3.5-dev.1, runtime r6, 2026-11-21): PASSED
+
+Wine prefix ready and the existing prefix kept; Xvfb running on :37 (ready after 41 ms); Wine connected and drew
+its window; pixel check PASS (all four quadrants); Wine content about 25-27 fps, display 121 fps, 0 dropped; display
+resumed after pause/resume. Wine tests 6/6 PASS, runtime self-test 4/4 PASS. Step 3.2 complete on the device.
