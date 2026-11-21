@@ -20,6 +20,8 @@ W="$(mkdir -p "${2:?work dir}" && realpath "$2")"
 repo="$(cd "$(dirname "$0")/../.." && pwd)"
 tools="$repo/runtime/display"
 core="$repo/app/src/main/java/io/github/saefalasalynbtel198/shcport/core"
+# shellcheck source=/dev/null
+. "$repo/runtime/versions.env"
 rt="$W/runtime"; st="$W/strace"
 rm -rf "$rt" "$st" "$W/fb" "$W/prefix" "$W/gdi" "$W/dd" "$W/classes"
 mkdir -p "$st" "$W/fb" "$W/gdi" "$W/dd" "$W/home" "$W/tmp" "$W/classes"
