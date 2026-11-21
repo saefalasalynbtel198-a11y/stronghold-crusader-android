@@ -1,5 +1,13 @@
 # Release notes
 
+## 0.3.2-dev.1 — BUILD 3 step 3.2: in-app display test (development build, not a playable game)
+
+* Runtime → **Display test**: starts the runtime's Xvfb (r6), runs a Windows test program through Box64 + Wine into
+  it, and draws Xvfb's real framebuffer on screen (1024×768, letterboxed). Shows Xvfb and Wine status, display and
+  Wine frame rates, frame counter, an automatic colour check, CPU and memory, pause/resume behaviour; Copy report.
+* Needs runtime r6 (no runtime change). Import, runtime install, self-test and Wine tests unchanged.
+* Start Game stays disabled.
+
 ## Runtime r6 — BUILD 3 phase 3 step 3.1 (CI-tested, not yet device-tested)
 
 * glibc Android patch: `setuid`/`setgid` to the process's current IDs succeed without the (trapped) syscall;

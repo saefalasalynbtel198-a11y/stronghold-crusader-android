@@ -55,3 +55,13 @@
   runtime change.
 * Xvfb is a patched copy of Debian's binary (three path strings); if Debian changes the binary layout the patch
   step fails the build instead of producing a broken package.
+
+## Display test (0.3.2-dev.1)
+
+* Tearing: Xvfb has no frame lock, so an upload can occasionally mix two frames. Memory access is safe (read-only
+  mapping, new file per session, Xvfb unlinks rather than truncates its file).
+* Latency is not measured end to end; the app uploads a changed picture at most one display frame after Xvfb holds
+  it. Display FPS (screen refresh), uploads/s and Wine content FPS (counter strip) are reported separately.
+* Display numbers :37–:40 are used because abstract sockets are shared by all apps; if all four are taken the test
+  says so.
+* The CI display job uses the r6 artifact of run 44911670217 (expires 2026-12-21).
