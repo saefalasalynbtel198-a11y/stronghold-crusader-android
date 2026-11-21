@@ -41,7 +41,8 @@ abis=$(sed -n 's#^lib/\([^/]*\)/.*#\1#p' <<<"$listing" | sort -u | tr '\n' ' ' |
 want=$(tr ' ' '\n' <<<"$EXPECTED_ABIS" | sed '/^$/d' | sort -u | tr '\n' ' ' | sed 's/ $//')
 [ "$abis" = "$want" ] || fail "native ABIs are '${abis:-none}', expected '${want:-none}'"
 
-if leaked=$(grep -Ei '\.(exe|gm1|tgx|bik|aiv|sav)$' <<<"$listing"); then
+# The only Windows program allowed is the project's own display test (built by CI from app/winsrc/).
+if leaked=$(grep -Ei '\.(exe|gm1|tgx|bik|aiv|sav)$' <<<"$listing" | grep -v '^assets/shc-display-test\.exe$'); then
   fail "APK contains game data files: $leaked"
 fi
 
