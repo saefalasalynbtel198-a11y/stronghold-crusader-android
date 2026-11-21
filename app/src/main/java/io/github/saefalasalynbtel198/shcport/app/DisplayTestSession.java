@@ -124,7 +124,9 @@ final class DisplayTestSession {
         File fbDir = new File(fbRoot, stamp);
         x11 = new X11Display(rt, fbDir, new File(logs, "display-xvfb-" + stamp + ".log"));
         set(State.STARTING_XVFB, "Starting Xvfb");
+        log("Xvfb working directory check: " + x11.preflight());
         String why = x11.start(120_000);
+        if (x11.removedLocks.length() > 0) log("removed old lock files (not used with -displayfd): " + x11.removedLocks);
         log("Xvfb command: " + String.join(" ", x11.argv == null ? new ArrayList<>() : x11.argv));
         if (why != null) {
             xvfbStatus = "failed: " + why;
@@ -257,6 +259,7 @@ final class DisplayTestSession {
                 s.viewWidth, s.viewHeight, s.surfaceCreations, pauses, resumes, resumes == 0 ? "not tested" : recovered ? "updating" : "NOT updating"));
         r.append("Latency: not measured end to end; the app uploads a changed picture at most one display frame after Xvfb holds it.\n");
         r.append("Resources now: ").append(resources()).append(" (CPU in % of one core; ").append(ProcInfo.CPUS).append(" cores)\n");
+        r.append("\nlogcat (this app: SELinux, seccomp, crashes):\n").append(logcat()).append('\n');
         r.append("\nTimeline:\n");
         for (String t : timeline) r.append(t).append('\n');
         r.append("\nLog:\n");
@@ -277,6 +280,31 @@ final class DisplayTestSession {
     }
 
     // ------------------------------------------------------------------------------------------------ helpers
+
+    /** This app's logcat lines since the session started that concern SELinux (avc), seccomp or crashes. */
+    private String logcat() {
+        long since = System.currentTimeMillis() - (SystemClock.uptimeMillis() - startedAt);
+        StringBuilder sb = new StringBuilder();
+        int n = 0;
+        try {
+            Process p = new ProcessBuilder("logcat", "-d", "-v", "threadtime", "-T",
+                    String.format(Locale.ROOT, "%d.%03d", since / 1000, since % 1000)).redirectErrorStream(true).start();
+            try (java.io.BufferedReader r = new java.io.BufferedReader(new java.io.InputStreamReader(p.getInputStream(), StandardCharsets.UTF_8))) {
+                String line;
+                while ((line = r.readLine()) != null) {
+                    String l = line.toLowerCase(Locale.ROOT);
+                    if (l.contains("avc:") || l.contains("seccomp") || l.contains("sigsys") || l.contains("fatal signal")
+                            || l.contains("xvfb") || l.contains("tombstone")) {
+                        if (n++ < 60) sb.append(line).append('\n');
+                    }
+                }
+            }
+            p.waitFor(10, TimeUnit.SECONDS);
+        } catch (Exception e) {
+            return "not readable: " + e.getMessage();
+        }
+        return n == 0 ? "(no matching lines)" : sb.toString().trim();
+    }
 
     private Map<String, String> baseWineEnv() { return WineTestPlan.wineEnv(rt, paths.prefixDir(), paths.tmpDir()); }
 

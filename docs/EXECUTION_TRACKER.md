@@ -12,7 +12,7 @@ Last updated: 2026-11-20 (BUILD 2 device report 2: glibc patched for Android sec
 | 3d | BUILD 2 device acceptance | COMPLETED (owner-reported) | Owner, 2026-11-20, Xiaomi 25053PC47G Android 16: patched glibc, threads/robust mutex/fork, Box64 v0.3.8, `wine --version` PASS with runtime r3 / app 0.2.2-dev.1. |
 | 5a | BUILD 3 phase 1–2: Wine prefix + Windows PE smoke test | COMPLETED | Owner's device report 2026-11-21 (Xiaomi 25053PC47G, Android 16, app 0.3.1-dev.1, runtime r5): runtime self-test 4/4 required steps PASS, Wine tests 6/6 required steps PASS (prefix init, wineserver -w, wineserver dir, PE smoke 64-bit and 32-bit). Fix: glibc `accept` → `accept4` (milestone 5b section). |
 | 5b | CI for the fix (APK 0.3.1-dev.1, runtime r5) | COMPLETED | Repository made public, Actions unblocked. [Android build 44823423581](https://github.com/saefalasalynbtel198-a11y/stronghold-crusader-android/actions/runs/44823423581) (APK SHA-256 `be714a5d…daf19`), [Runtime components 44823423675](https://github.com/saefalasalynbtel198-a11y/stronghold-crusader-android/actions/runs/44823423675) 7/7 jobs (qemu Box64+Wine: no syscall outside Android's allowlist). |
-| 5c | BUILD 3 phase 3: display, game window, touch input | IN PROGRESS | 3.0 feasibility PASS (CI). 3.1 runtime r6: device self-test PASS, Wine tests 6/6 PASS (owner, 2026-11-21). **3.2 in-app display: implemented, CI PASS** ([Android build 44918002122](https://github.com/saefalasalynbtel198-a11y/stronghold-crusader-android/actions/runs/44918002122), docs/evidence/step3.2-display-ci.md) — **device test pending**; not COMPLETED until the owner's report meets the step 3.2 criteria. 3.3/3.4 not started. Start Game disabled. |
+| 5c | BUILD 3 phase 3: display, game window, touch input | IN PROGRESS | 3.0 feasibility PASS (CI). 3.1 runtime r6: device self-test PASS, Wine tests 6/6 PASS (owner, 2026-11-21). **3.2 in-app display: implemented, CI PASS** ([Android build 44918002122](https://github.com/saefalasalynbtel198-a11y/stronghold-crusader-android/actions/runs/44918002122), docs/evidence/step3.2-display-ci.md) — device run of 0.3.2-dev.1 FAILED (Xvfb lock file: Android forbids hard links); fix 0.3.3-dev.1 (`-displayfd`) CI-tested — **device test pending**; not COMPLETED until the owner's report meets the step 3.2 criteria. 3.3/3.4 not started. Start Game disabled. |
 | 4 | Complete Android application (AR/EN, themes, game launch screen) | NOT STARTED | |
 | 5 | Runtime integration: display server, Wine prefix, cnc-ddraw, audio | IN PROGRESS | Wine prefix: COMPLETED (5a). Display + cnc-ddraw: 5c. Audio: phase 4. |
 | 6 | Touch controls injected into the game | NOT STARTED | Mapper done and unit-tested; injection = plan step 3.3 (XTEST) |
@@ -171,6 +171,8 @@ Last updated: 2026-11-20 (BUILD 2 device report 2: glibc patched for Android sec
 
 ## Next action
 
-1. Owner: install app 0.3.2-dev.1 (keep runtime r6), Runtime → Display test → Start, check the screen, pause/resume,
+0. 0.3.2-dev.1 on the device: Xvfb exited with `Linking lock file (./.X37-lock) in place failed: Permission denied`
+   (Android forbids hard links to apps). Fix in 0.3.3-dev.1: `-displayfd`, no lock file (CI-tested only).
+1. Owner: install app 0.3.3-dev.1 (keep runtime r6), Runtime → Display test → Start, check the screen, pause/resume,
    let it run a few minutes, Stop, Copy report; send the report and a phone screenshot.
 2. Agent: analyse the device report; step 3.3 (touch input) only after step 3.2 passes on the device.

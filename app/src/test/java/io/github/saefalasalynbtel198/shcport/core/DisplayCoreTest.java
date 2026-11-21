@@ -130,7 +130,8 @@ public class DisplayCoreTest {
                 "-extension MIT-SHM", "-extension GLX", "-ac", "-fp built-ins", "-xkbdir /rt/x11/share/X11/xkb"}) {
             assertTrue(flag, all.contains(flag));
         }
-        assertFalse(all.contains("-nolock"));
+        assertFalse(all.contains("-nolock"));     // root-only in Xvfb; ignored for apps
+        assertTrue(all.endsWith("-displayfd 3"));  // no lock file: Android forbids the hard link it needs
         assertEquals(new File("/rt/x11"), X11DisplayPlan.xvfbWorkingDir(rt));
         assertEquals("/tmp/.X11-unix/X37", X11DisplayPlan.abstractSocketName(37));
         assertEquals(new File("/f/fb1/Xvfb_screen0"), X11DisplayPlan.framebufferFile(new File("/f/fb1")));
@@ -149,5 +150,35 @@ public class DisplayCoreTest {
         assertEquals(30, s.perSecond(1000 + 29 * 33));
         assertEquals(0, s.perSecond(5000));
         assertEquals(30, s.total());
+    }
+
+    @Test
+    public void xvfbIsLaunchedWithoutLockFileThroughTheDisplayFdWrapper() {
+        RuntimeLayout rt = new RuntimeLayout(new File("/rt"));
+        List<String> a = X11DisplayPlan.launchArgv(X11DisplayPlan.ANDROID_SHELL, rt, 38, new File("/f"));
+        assertEquals(java.util.Arrays.asList("/system/bin/sh", "-c", "exec 3>&1 1>/dev/null; exec \"$@\"", "xvfb"),
+                a.subList(0, 4));
+        assertEquals(X11DisplayPlan.xvfbArgv(rt, 38, new File("/f")), a.subList(4, a.size()));
+        assertTrue(a.contains(":38"));
+        int i = a.indexOf("-displayfd");
+        assertEquals("3", a.get(i + 1));
+    }
+
+    @Test
+    public void readsTheReadyLineAndClassifiesStartFailures() {
+        assertEquals(37, X11DisplayPlan.parseReadyLine("37\n"));
+        assertEquals(40, X11DisplayPlan.parseReadyLine(" 40 "));
+        assertEquals(-1, X11DisplayPlan.parseReadyLine(null));
+        assertEquals(-1, X11DisplayPlan.parseReadyLine(""));
+        assertEquals(-1, X11DisplayPlan.parseReadyLine("Fatal server error"));
+        assertEquals(-1, X11DisplayPlan.parseReadyLine("123456"));
+        assertEquals(X11DisplayPlan.StartFailure.DISPLAY_IN_USE, X11DisplayPlan.classify(
+                "_XSERVTransSocketLocalCreateListener: failed\nFatal server error:\n(EE) Cannot establish any listening sockets - Make sure an X server isn't already running"));
+        assertEquals(X11DisplayPlan.StartFailure.DISPLAY_IN_USE, X11DisplayPlan.classify("Server is already active for display 37"));
+        // the device failure of 0.3.2-dev.1 is not a busy display: it must be reported, not skipped over
+        assertEquals(X11DisplayPlan.StartFailure.OTHER, X11DisplayPlan.classify(
+                "Fatal server error:\n(EE) Linking lock file (./.X37-lock) in place failed: Permission denied"));
+        assertEquals(X11DisplayPlan.StartFailure.OTHER, X11DisplayPlan.classify(null));
+        assertEquals(java.util.Arrays.asList(".X37-lock", ".tX37-lock"), X11DisplayPlan.legacyLockFiles(37));
     }
 }

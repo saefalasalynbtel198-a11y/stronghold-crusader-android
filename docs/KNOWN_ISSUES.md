@@ -56,7 +56,12 @@
 * Xvfb is a patched copy of Debian's binary (three path strings); if Debian changes the binary layout the patch
   step fails the build instead of producing a broken package.
 
-## Display test (0.3.2-dev.1)
+## Display test (0.3.2-dev.1 / 0.3.3-dev.1)
+
+* 0.3.2-dev.1 cannot start Xvfb on Android (hard links are forbidden to apps, Xvfb's lock file needs one); fixed
+  in 0.3.3-dev.1 (`-displayfd`, no lock file) — CI-reproduced and CI-tested, not yet device-tested.
+* Without a lock file, two Xvfb starting at the same instant on the same display are separated only by the
+  abstract socket bind: the second one is refused by the kernel and the app moves to the next display.
 
 * Tearing: Xvfb has no frame lock, so an upload can occasionally mix two frames. Memory access is safe (read-only
   mapping, new file per session, Xvfb unlinks rather than truncates its file).

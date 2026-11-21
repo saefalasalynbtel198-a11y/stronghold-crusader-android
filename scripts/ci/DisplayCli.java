@@ -12,7 +12,8 @@ import java.util.Map;
 /**
  * CI helper: exposes the app's own display code (core/X11DisplayPlan, XwdFramebuffer, DisplayTestPattern) so the
  * qemu test starts Xvfb and Wine exactly as the app does and reads the framebuffer exactly as the app does.
- *   xvfb-argv <runtime> <display> <fbdir> | xvfb-cwd <runtime> | socket <display> | xdpyinfo-argv <runtime> <display>
+ *   xvfb-argv <runtime> <display> <fbdir> | launch-argv <shell> <runtime> <display> <fbdir> | ready <line> |
+ *   classify <xvfb log> | xvfb-cwd <runtime> | socket <display> | xdpyinfo-argv <runtime> <display>
  *   wine-env <runtime> <prefix> <tmp> <display> | wine-argv <runtime> <exe> | check <framebuffer file>
  */
 public final class DisplayCli {
@@ -21,6 +22,18 @@ public final class DisplayCli {
             case "xvfb-argv":
                 X11DisplayPlan.xvfbArgv(new RuntimeLayout(new File(a[1])), Integer.parseInt(a[2]), new File(a[3])).forEach(System.out::println);
                 break;
+            case "launch-argv":   // launch-argv <shell> <runtime> <display> <fbdir>: what the app's ProcessBuilder runs
+                X11DisplayPlan.launchArgv(a[1], new RuntimeLayout(new File(a[2])), Integer.parseInt(a[3]), new File(a[4]))
+                        .forEach(System.out::println);
+                break;
+            case "ready":          // ready <line>: display number the app reads from -displayfd, or -1
+                System.out.println(X11DisplayPlan.parseReadyLine(a.length > 1 ? a[1] : null));
+                break;
+            case "classify": {     // classify <xvfb log file>
+                System.out.println(X11DisplayPlan.classify(new String(java.nio.file.Files.readAllBytes(new File(a[1]).toPath()),
+                        java.nio.charset.StandardCharsets.UTF_8)));
+                break;
+            }
             case "xvfb-cwd":
                 System.out.println(X11DisplayPlan.xvfbWorkingDir(new RuntimeLayout(new File(a[1]))));
                 break;

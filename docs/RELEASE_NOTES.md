@@ -1,5 +1,18 @@
 # Release notes
 
+## 0.3.3-dev.1 — BUILD 3 step 3.2 fix: Xvfb lock file on Android (development build, not a playable game)
+
+* Fix for the device failure of 0.3.2-dev.1 (`Linking lock file (./.X37-lock) in place failed: Permission
+  denied`): Android's SELinux policy forbids apps to create hard links, and Xvfb's lock file is made with `link()`.
+  Xvfb is now started with its documented `-displayfd` option (through `/system/bin/sh`, which only redirects file
+  descriptors), which turns off the lock file and reports the display number once Xvfb accepts connections.
+* The display is chosen safely without a lock file: a display whose abstract socket answers is skipped; a display
+  Xvfb itself refuses as in use moves on to the next (:37–:40); any other Xvfb error is reported, not skipped.
+  Lock files left by 0.3.2-dev.1 are removed (they were never valid).
+* Display test report: working directory check before Xvfb starts (path, owner, mode, write/delete test, hard-link
+  test) and an SELinux/seccomp/crash section from logcat.
+* No runtime change (r6). Start Game stays disabled.
+
 ## 0.3.2-dev.1 — BUILD 3 step 3.2: in-app display test (development build, not a playable game)
 
 * Runtime → **Display test**: starts the runtime's Xvfb (r6), runs a Windows test program through Box64 + Wine into
