@@ -4,7 +4,7 @@ Commit `db597a0` on `feature/build3-step3.2-display` (PR #7). App 0.3.2-dev.1 (c
 
 | Workflow / job | Result | Kind |
 |---|---|---|
-| [Android build 44918002122](https://github.com/saefalasalynbtel198-a11y/stronghold-crusader-android/actions/runs/44918002122): unit tests (63, incl. 7 new display tests), lint, APK build, APK verification, asset check | PASS | Linux |
+| [Android build 44918002122](https://github.com/saefalasalynbtel198-a11y/stronghold-crusader-android/actions/runs/44918002122): unit tests (56, incl. 7 new display tests), lint, APK build, APK verification, asset check | PASS | Linux |
 | same run: Emulator smoke test (x86_64, API 30): app start, background/foreground, **Display Test screen opens; same activity instance resumed after screen off/on; no crash** (no runtime on the emulator) | PASS | x86-64 emulator |
 | same run: Display path under qemu-aarch64 (runtime r6 artifact + the app's own `X11DisplayPlan`, Wine env and `XwdFramebuffer`/`DisplayTestPattern` reading a read-only mapping); results below | PASS | emulated ARM64 Linux |
 | [Runtime components 44918002119](https://github.com/saefalasalynbtel198-a11y/stronghold-crusader-android/actions/runs/44918002119): r6 rebuilt from unchanged sources, all 8 jobs incl. Xvfb/GDI/cnc-ddraw display test | PASS | Linux / emulated ARM64 |
