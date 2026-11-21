@@ -42,7 +42,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends qemu-user-static binfmt-support mmdebstrap \
-            debian-archive-keyring gcc-mingw-w64-i686 gcc-aarch64-linux-gnu
+            debian-archive-keyring gcc-mingw-w64-i686 gcc-aarch64-linux-gnu libc6-dev-arm64-cross
       - name: Build shc-gui-smoke.exe (i686, like the game)
         run: |
           mkdir -p out
