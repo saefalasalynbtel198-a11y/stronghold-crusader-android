@@ -50,7 +50,7 @@ adb shell screencap -p /sdcard/smoke.png && adb pull /sdcard/smoke.png "$OUT/scr
 
 # Display test screen (BUILD 3 step 3.2): opens (debug-only extra), GL surface comes up, survives pause/resume
 # (screen off/on keeps the same activity instance) without a runtime installed.
-adb shell am start -W -n "$PKG/.app.MainActivity" --es shc.open display-test > "$OUT/am-start-display.txt"
+adb shell am start -S -W -n "$PKG/.app.MainActivity" --es shc.open display-test > "$OUT/am-start-display.txt"   # -S: cold start, so onCreate reads the extra
 sleep 5
 adb shell dumpsys activity activities | grep -E "mResumedActivity|topResumedActivity|ResumedActivity" | tee "$OUT/display-resumed-1.txt"
 grep -q "DisplayTestActivity" "$OUT/display-resumed-1.txt" || fail "display test screen did not open"
