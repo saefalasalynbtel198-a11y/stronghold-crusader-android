@@ -9,6 +9,14 @@ Blocked on that device (reported by `bin/shc-sysprobe`): `rseq`, `set_robust_lis
 `faccessat2`, `openat2`, `futex_waitv`, `io_uring_setup`, `set_mempolicy_home_node` (+ `setuid`, `mount`).
 `clone3` and `fchmodat2` were allowed there but are blocked on older Android releases.
 
+`accept` (aarch64 syscall 202) is also outside the arm64 app allowlist: bionic implements `accept()` with
+`accept4`, so the filter generated from bionic's `SYSCALLS.TXT` has only `accept4`. glibc calls `accept`
+directly. This killed wineserver on the device at its first client connection (BUILD 3: wine reported
+`recvmsg: Connection reset by peer`). Found by tracing every syscall of the device's Wine path under
+qemu-aarch64 and checking it against the allowlist computed from AOSP bionic (`SYSCALLS.TXT` +
+`SECCOMP_ALLOWLIST_*` − `SECCOMP_BLOCKLIST_*`); that computed list agrees with all 30 syscalls the device probe
+reported. `accept` was the only syscall on the whole Wine start-up path (21 processes) outside it.
+
 `android-seccomp.patch` (LGPL-2.1-or-later, like glibc) makes glibc take code paths it already has for kernels
 or architectures without those syscalls. No new behaviour is invented:
 
@@ -22,13 +30,20 @@ or architectures without those syscalls. No new behaviour is invented:
 | `linux/fchmodat.c` | `fchmodat2` | pre-6.6-kernel `O_PATH` fallback |
 | `linux/clone-internal.c` | `clone3` (threads, fork helpers) | start with `clone3_supported = 0` → `clone` |
 | `linux/spawni.c` | `clone3` (`posix_spawn`) | `clone` fallback directly |
+| `linux/accept.c` | `accept` | `accept4(fd, addr, len, 0)` — the same operation; glibc already has this path for architectures without `accept` |
 
 Tests:
 * `runtime/scripts/test-sysprobe.sh` — unpatched glibc dies with exit 159 under the device's blocked set, even
   with `GLIBC_TUNABLES=glibc.pthread.rseq=0` (reproduces device report 2).
 * `runtime/scripts/test-glibc-android.sh` — patched glibc (x86-64 build of the same patch) runs start-up,
-  threads, robust mutex, fork, posix_spawn, faccessat, fchmodat under that set.
-* On the device: self-test step "glibc start-up, threads, fork" (`bin/shc-glibctest`).
+  threads, robust mutex, fork, posix_spawn, faccessat, fchmodat and accept on a Unix socket under that set
+  (the simulated set includes `accept`).
+* On the device: self-test step "glibc start-up, threads, fork" (`bin/shc-glibctest`, now also accept), and the
+  seccomp probe lines `accept (bad fd)` (expected BLOCKED) and `accept4 (bad fd)` (expected allowed).
+
+Not patched, because nothing on the current path uses them, but blocked for apps and relevant later:
+System V IPC (`shmget`, `shmat`, `semget`, `msgget`, …) and POSIX message queues. X11's MIT-SHM extension uses
+`shmget`, so the display path (phase 3) must not depend on it.
 
 Consequence for the runtime: every glibc program must be started through the packaged loader
 (`ld-linux-aarch64.so.1 --library-path …`). Android has no system glibc; a child exec'd directly cannot start.

@@ -35,3 +35,13 @@
 * `CNC_DDRAW_SHA256` is empty until the first `runtime-components.yml` run records it.
 * cnc-ddraw defaults in `CncDdrawConfig` are untuned.
 * targetSdk is 28 from BUILD 2 (decision in ARCHITECTURE.md); the app cannot be published on Google Play.
+
+## Android seccomp (app filter)
+
+* Android traps syscalls outside its app allowlist with SIGSYS. The runtime's glibc is patched for those found so
+  far (`runtime/glibc-android/README.md`): `rseq`, `set_robust_list`, `faccessat2`, `fchmodat2`, `clone3`,
+  `accept` (0.3.1 / r5).
+* System V IPC (`shmget`, `shmat`, `semget`, `msgget`) and POSIX message queues are blocked for apps and are not
+  patched. X11 MIT-SHM uses `shmget`: the phase 3 display path must work without it.
+* CI checks the Wine start-up path against the allowlist (`runtime/android/`), but only under qemu on Linux;
+  the device remains the authority.

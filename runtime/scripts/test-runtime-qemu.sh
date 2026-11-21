@@ -14,7 +14,8 @@ mkdir -p "$WORK/classes"
 rt="$WORK/runtime"
 rm -rf "$rt"
 
-javac -d "$WORK/classes" "$repo/app/src/main/java/io/github/saefalasalynbtel198/shcport/core/RuntimeArchive.java" \
+core="$repo/app/src/main/java/io/github/saefalasalynbtel198/shcport/core"
+javac -d "$WORK/classes" -sourcepath "$repo/app/src/main/java" "$core/RuntimeArchive.java" "$core/ElfInterp.java" "$core/RuntimeLayout.java" \
   "$repo/scripts/ci/ExtractRuntime.java"
 java -cp "$WORK/classes" ExtractRuntime "$ZIP" "$rt"
 
