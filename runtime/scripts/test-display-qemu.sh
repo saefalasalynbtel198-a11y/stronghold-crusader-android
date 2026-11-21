@@ -61,7 +61,9 @@ xvfb_alive() { pgrep -u "$(id -u)" -f "Xvfb :0" > /dev/null; }
 up=0
 for i in $(seq 1 300); do
   grep -q "@/tmp/.X11-unix/X0" /proc/net/unix && { up=1; break; }
-  kill -0 $xvfb 2>/dev/null || break
+  # $xvfb is sudo's PID (root: kill -0 fails for this user); look for the Xvfb process itself, after a grace
+  # period for the namespace setup
+  [ "$i" -gt 15 ] && ! xvfb_alive && break
   sleep 1
 done
 ls -la "$x11"
