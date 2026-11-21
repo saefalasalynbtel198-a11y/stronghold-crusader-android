@@ -8,20 +8,21 @@
 #   1. Xvfb :0 1024x768x24, abstract socket only (no /tmp), no MIT-SHM (shmget is blocked on Android), no GLX,
 #      built-in fonts, framebuffer in a file (-fbdir); its XKB and lock-file paths patched to its own directory;
 #      run in a private mount namespace where /tmp, /var, /usr/lib/xorg and /usr/share/X11 are empty and
-#      read-only (Android has none of them), with libshc-sameid.so preloaded (setuid/setgid to the caller's own
-#      ids become no-ops; Android's seccomp filter traps them even then)
+#      read-only (Android has none of them), with libshc-android-shim.so preloaded (see its header: setuid/
+#      setgid to the caller's own ids become no-ops; shmget fails with ENOSYS)
 #   2. wineboot --init (no display), then shc-gui-smoke.exe gdi   -> check 4 colour blocks in the framebuffer
+#      (Wine GUI processes also get the preload: Wine's X11 driver calls shmget for every window surface)
 #   3. shc-gui-smoke.exe ddraw with r5's cnc-ddraw ddraw.dll + ddraw.ini (renderer=gdi) -> check 4 colour blocks
 #   4. every syscall of every process (Xvfb, xkbcomp, Box64/Wine) checked against Android's arm64 app allowlist
 #   5. every file path Xvfb/xkbcomp opened or executed outside the test directories listed (Android has no
 #      /usr, /var, /tmp)
 # Linux emulation, NOT Android: no seccomp enforcement, no SELinux, different kernel. The device test follows.
 #
-# Usage: run-feasibility.sh <shc-runtime-r5-*.zip> <shc-gui-smoke.exe> <libshc-sameid.so> <work dir>
+# Usage: run-feasibility.sh <shc-runtime-r5-*.zip> <shc-gui-smoke.exe> <libshc-android-shim.so> <work dir>
 set -uo pipefail
 ZIP="$(realpath "${1:?runtime zip}")"
 EXE="$(realpath "${2:?shc-gui-smoke.exe}")"
-SHIM="$(realpath "${3:?libshc-sameid.so}")"
+SHIM="$(realpath "${3:?libshc-android-shim.so}")"
 W="$(mkdir -p "${4:?work dir}" && realpath "$4")"
 repo="$(cd "$(dirname "$0")/../../.." && pwd)"
 spike="$repo/runtime/spike/display"
@@ -66,7 +67,7 @@ chmod 0755 "$x11/xkbcomp"
 xkbdir="$xroot/usr/share/X11/xkb"   # must be writable: xkbcomp changes into it and writes the compiled keymap there
 
 echo "== 1. Xvfb"
-cp "$SHIM" "$x11/libshc-sameid.so"
+cp "$SHIM" "$x11/libshc-android-shim.so"
 export SPIKE_X11="$x11" SPIKE_LOADER="$loader" SPIKE_LP="$LP" SPIKE_FB="$W/fb" SPIKE_XKB="$xkbdir" SPIKE_ST="$st"
 sudo --preserve-env unshare --mount -- bash -c '
   for d in /tmp /var /usr/lib/xorg /usr/share/X11; do
@@ -75,7 +76,7 @@ sudo --preserve-env unshare --mount -- bash -c '
   cd "$SPIKE_X11"
   exec setpriv --reuid="$SUDO_UID" --regid="$SUDO_GID" --init-groups \
     env QEMU_STRACE=1 QEMU_LOG_FILENAME="$SPIKE_ST/xvfb.%d" \
-    "$SPIKE_LOADER" --preload ./libshc-sameid.so --library-path "$SPIKE_LP" ./Xvfb :0 \
+    "$SPIKE_LOADER" --preload ./libshc-android-shim.so --library-path "$SPIKE_LP" ./Xvfb :0 \
       -screen 0 1024x768x24 -fbdir "$SPIKE_FB" -nolisten tcp -nolisten unix -extension MIT-SHM -extension GLX \
       -ac -fp built-ins -xkbdir "$SPIKE_XKB"' > "$W/xvfb.log" 2>&1 &
 xvfb=$!
@@ -121,7 +122,7 @@ fi
 gui_test() {
   local dir="$1" mode="$2" extra="$3" log="$W/$2.log" ok=0 code
   cp "$EXE" "$dir/shc-gui-smoke.exe"
-  (cd "$dir" && DISPLAY=:0 WINEDLLOVERRIDES="$WINEDLLOVERRIDES$extra" WINEDEBUG="err+all,warn+x11drv,warn+winediag,fixme-all" \
+  (cd "$dir" && DISPLAY=:0 LD_PRELOAD="$x11/libshc-android-shim.so" WINEDLLOVERRIDES="$WINEDLLOVERRIDES$extra" WINEDEBUG="err+all,warn+x11drv,warn+winediag,fixme-all" \
      QEMU_STRACE=1 QEMU_LOG_FILENAME="$st/$mode.%d" \
      exec timeout 2400 "$box64" "$wine" shc-gui-smoke.exe "$mode" 60 > "$log" 2>&1) &
   local pid=$!
