@@ -35,6 +35,13 @@
             android:screenOrientation="sensorLandscape" />
 
         <activity
+            android:name=".app.DisplayTestActivity"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden"
+            android:exported="false"
+            android:screenOrientation="sensorLandscape"
+            android:theme="@style/Theme.ShcPort.Fullscreen" />
+
+        <activity
             android:name=".app.RuntimeActivity"
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden"
             android:exported="false"

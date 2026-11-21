@@ -29,6 +29,12 @@ public final class RuntimeLayout {
     public File wineBinDir() { return new File(root, "wine/bin"); }
     public File peSmoke32() { return new File(root, "win/shc-pe-smoke-i686.exe"); }
     public File peSmoke64() { return new File(root, "win/shc-pe-smoke-x86_64.exe"); }
+    /** X server files (runtime r6+): patched Xvfb, xkbcomp wrapper, xkb data, xdpyinfo. */
+    public File x11Dir() { return new File(root, "x11"); }
+    public File xvfb() { return new File(root, "x11/Xvfb"); }
+    public File xkbDir() { return new File(root, "x11/share/X11/xkb"); }
+    public File xdpyinfo() { return new File(root, "x11/bin/xdpyinfo"); }
+    public boolean hasX11() { return xvfb().isFile() && new File(root, "x11/xkbcomp").isFile() && xkbDir().isDirectory(); }
     public File cncDdraw() { return new File(root, "cnc-ddraw/ddraw.dll"); }
     public File versionFile() { return new File(root, "RUNTIME_VERSION"); }
 

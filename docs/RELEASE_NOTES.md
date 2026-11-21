@@ -1,5 +1,51 @@
 # Release notes
 
+## 0.3.5-dev.1 — BUILD 3 step 3.2 fix: Wine prefix in the display test (development build, not a playable game)
+
+* **Device result (owner, 2026-11-21): display test PASSED** on Xiaomi 25053PC47G, Android 16 (Xvfb :37, Wine window, pixel check, ~27 fps, pause/resume; Wine tests 6/6, self-test 4/4).
+
+* Fix for the device failure of 0.3.4-dev.1 (`wine: chdir to .../files/prefix/wine : No such file or directory`):
+  Wine creates only the last directory of WINEPREFIX; the display test never created `files/prefix` (the Wine tests
+  and the self-test do). The display test now creates and checks it first.
+* The display test creates the prefix with the Wine tests' own steps and checks (wineboot --init and wineserver -w
+  must exit 0, `system.reg` and `drive_c/windows` must exist), in the runtime directory, and stops Wine again.
+  Xvfb starts only after the prefix is ready.
+* Report: prefix path, existence, creation result, write test, owner/mode, every Wine command with exit code.
+* APK check prints the signing certificate's SHA-256.
+* Xvfb changes of 0.3.3/0.3.4 kept. No runtime change (r6). Start Game stays disabled.
+
+## 0.3.4-dev.1 — BUILD 3 step 3.2 fix: Xvfb readiness on stdout (development build, not a playable game)
+
+* Fix for the device failure of 0.3.3-dev.1 (`Cannot write display number to fd 3`): Android's `/system/bin/sh`
+  (mksh) closes descriptors above 2 that a script opens with `exec`, so descriptor 3 never reached Xvfb. Xvfb is
+  now started directly through the runtime loader (no shell) with `-displayfd 1`: it writes the display number to
+  its stdout pipe and closes it; its messages stay on stderr, which goes to the log separately.
+* The app accepts only one line of digits that equals the display it started (:37–:40); anything else on stdout is
+  reported and Xvfb is stopped. Output after the number is recorded in the report.
+* Report: the exact argv of Xvfb, each display tried and why, and whether Xvfb closed stdout after the number.
+* Hard-link fix of 0.3.3 kept (no lock file). No runtime change (r6). Start Game stays disabled.
+
+## 0.3.3-dev.1 — BUILD 3 step 3.2 fix: Xvfb lock file on Android (development build, not a playable game)
+
+* Fix for the device failure of 0.3.2-dev.1 (`Linking lock file (./.X37-lock) in place failed: Permission
+  denied`): Android's SELinux policy forbids apps to create hard links, and Xvfb's lock file is made with `link()`.
+  Xvfb is now started with its documented `-displayfd` option (through `/system/bin/sh`, which only redirects file
+  descriptors), which turns off the lock file and reports the display number once Xvfb accepts connections.
+* The display is chosen safely without a lock file: a display whose abstract socket answers is skipped; a display
+  Xvfb itself refuses as in use moves on to the next (:37–:40); any other Xvfb error is reported, not skipped.
+  Lock files left by 0.3.2-dev.1 are removed (they were never valid).
+* Display test report: working directory check before Xvfb starts (path, owner, mode, write/delete test, hard-link
+  test) and an SELinux/seccomp/crash section from logcat.
+* No runtime change (r6). Start Game stays disabled.
+
+## 0.3.2-dev.1 — BUILD 3 step 3.2: in-app display test (development build, not a playable game)
+
+* Runtime → **Display test**: starts the runtime's Xvfb (r6), runs a Windows test program through Box64 + Wine into
+  it, and draws Xvfb's real framebuffer on screen (1024×768, letterboxed). Shows Xvfb and Wine status, display and
+  Wine frame rates, frame counter, an automatic colour check, CPU and memory, pause/resume behaviour; Copy report.
+* Needs runtime r6 (no runtime change). Import, runtime install, self-test and Wine tests unchanged.
+* Start Game stays disabled.
+
 ## Runtime r6 — BUILD 3 phase 3 step 3.1 (CI-tested, not yet device-tested)
 
 * glibc Android patch: `setuid`/`setgid` to the process's current IDs succeed without the (trapped) syscall;

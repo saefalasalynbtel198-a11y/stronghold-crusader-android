@@ -60,6 +60,15 @@ jobs:
           echo "code=${line##*|}" >> "$GITHUB_OUTPUT"
           echo "Version: $line"
 
+      - name: Build Windows display test program (mingw-w64, shipped as an APK asset)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends gcc-mingw-w64-i686
+          mkdir -p app/build/generated/shc-assets
+          i686-w64-mingw32-gcc -O2 -Wall -Werror -static -o app/build/generated/shc-assets/shc-display-test.exe \
+            app/winsrc/shc-display-test.c -lgdi32
+          sha256sum app/build/generated/shc-assets/shc-display-test.exe
+
       - name: Unit tests
         run: |
           mkdir -p build-logs
@@ -78,6 +87,11 @@ jobs:
 
       - name: Verify APK
         run: bash scripts/ci/verify-apk.sh app/build/outputs/apk/debug/app-debug.apk "${{ steps.version.outputs.name }}"
+
+      - name: Check the display test program is in the APK
+        run: |
+          unzip -l app/build/outputs/apk/debug/app-debug.apk | tee /tmp/apk-list.txt | grep "assets/shc-display-test.exe"
+          unzip -p app/build/outputs/apk/debug/app-debug.apk assets/shc-display-test.exe | sha256sum
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
@@ -140,3 +154,51 @@ jobs:
           path: smoke-test-output/
           if-no-files-found: warn
           retention-days: 14
+
+  display-qemu:
+    name: Display path under qemu-aarch64 (runtime r6 + the app's display code; Linux not Android)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    permissions:
+      contents: read
+      actions: read
+    env:
+      R6_RUN_ID: "44911670217"   # Runtime components run that built runtime r6 (device-verified 2026-11-21)
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+      - name: Download runtime r6 (unchanged, from its CI run)
+        uses: actions/download-artifact@v4
+        with:
+          name: shc-runtime-package
+          path: r6
+          run-id: ${{ env.R6_RUN_ID }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Check runtime r6 checksum
+        run: (cd r6 && cat shc-runtime-r6-*.zip.sha256 && sha256sum -c shc-runtime-r6-*.zip.sha256)
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Install tools (qemu-user, mingw; mksh = Android's /system/bin/sh and native Xvfb for the fd-3 reproduction)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends qemu-user-static binfmt-support gcc-mingw-w64-i686 mksh xvfb
+      - name: Build shc-display-test.exe (as for the APK)
+        run: |
+          mkdir -p out
+          i686-w64-mingw32-gcc -O2 -Wall -Werror -static -o out/shc-display-test.exe app/winsrc/shc-display-test.c -lgdi32
+          sha256sum out/shc-display-test.exe
+      - name: Xvfb with the app's command line, test program through Box64 + Wine, framebuffer read by the app's code
+        run: bash scripts/ci/test-app-display-qemu.sh r6/shc-runtime-r6-*.zip out/shc-display-test.exe "$RUNNER_TEMP/appdisplay"
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-display-qemu-results
+          path: |
+            ${{ runner.temp }}/appdisplay/*.png
+            ${{ runner.temp }}/appdisplay/*.log
+            ${{ runner.temp }}/appdisplay/*.txt
+          if-no-files-found: warn

@@ -12,7 +12,7 @@ Last updated: 2026-11-20 (BUILD 2 device report 2: glibc patched for Android sec
 | 3d | BUILD 2 device acceptance | COMPLETED (owner-reported) | Owner, 2026-11-20, Xiaomi 25053PC47G Android 16: patched glibc, threads/robust mutex/fork, Box64 v0.3.8, `wine --version` PASS with runtime r3 / app 0.2.2-dev.1. |
 | 5a | BUILD 3 phase 1–2: Wine prefix + Windows PE smoke test | COMPLETED | Owner's device report 2026-11-21 (Xiaomi 25053PC47G, Android 16, app 0.3.1-dev.1, runtime r5): runtime self-test 4/4 required steps PASS, Wine tests 6/6 required steps PASS (prefix init, wineserver -w, wineserver dir, PE smoke 64-bit and 32-bit). Fix: glibc `accept` → `accept4` (milestone 5b section). |
 | 5b | CI for the fix (APK 0.3.1-dev.1, runtime r5) | COMPLETED | Repository made public, Actions unblocked. [Android build 44823423581](https://github.com/saefalasalynbtel198-a11y/stronghold-crusader-android/actions/runs/44823423581) (APK SHA-256 `be714a5d…daf19`), [Runtime components 44823423675](https://github.com/saefalasalynbtel198-a11y/stronghold-crusader-android/actions/runs/44823423675) 7/7 jobs (qemu Box64+Wine: no syscall outside Android's allowlist). |
-| 5c | BUILD 3 phase 3: display, game window, touch input | IN PROGRESS | Step 3.0 feasibility PASS in CI. Step 3.1 runtime r6 (owner decision (a): glibc setuid/setgid same-id + shmget ENOSYS; Xvfb in the runtime): CI PASS, [run 44911670217](https://github.com/saefalasalynbtel198-a11y/stronghold-crusader-android/actions/runs/44911670217), docs/evidence/runtime-r6.md — not yet tested on the device. r5 remains the known-good fallback. Start Game stays disabled. |
+| 5c | BUILD 3 phase 3: display, game window, touch input | IN PROGRESS | 3.0 feasibility PASS (CI). 3.1 runtime r6: device self-test PASS, Wine tests 6/6 PASS (owner, 2026-11-21). **3.2 in-app display: PASSED on the owner's phone** (app 0.3.5-dev.1, runtime r6, Xiaomi 25053PC47G Android 16, 2026-11-21: Wine prefix ready/kept, Xvfb :37, Wine window drawn, pixel check PASS, Wine content ~27 fps, pause/resume OK; Wine tests 6/6, self-test 4/4); CI evidence docs/evidence/step3.2-*.md. 3.3 (game launch) next; 3.4 (touch input) not started. Start Game disabled. |
 | 4 | Complete Android application (AR/EN, themes, game launch screen) | NOT STARTED | |
 | 5 | Runtime integration: display server, Wine prefix, cnc-ddraw, audio | IN PROGRESS | Wine prefix: COMPLETED (5a). Display + cnc-ddraw: 5c. Audio: phase 4. |
 | 6 | Touch controls injected into the game | NOT STARTED | Mapper done and unit-tested; injection = plan step 3.3 (XTEST) |
@@ -171,6 +171,13 @@ Last updated: 2026-11-20 (BUILD 2 device report 2: glibc patched for Android sec
 
 ## Next action
 
-1. Owner, on the Android 16 phone with app 0.3.1-dev.1: install runtime r6, run the self-test and the Wine tests
-   (regression check of the glibc changes under the real seccomp filter); send both reports. Keep r5 to go back.
-2. Agent, after that: step 3.2 (display in the app: Xvfb start, framebuffer renderer, display test button).
+0. 0.3.2-dev.1 on the device: Xvfb exited with `Linking lock file (./.X37-lock) in place failed: Permission denied`
+   (Android forbids hard links to apps). Fix in 0.3.3-dev.1: `-displayfd`, no lock file.
+   0.3.3-dev.1 on the device: hard link DENIED as expected, then `Cannot write display number to fd 3` (Android's
+   mksh closes descriptors above 2 opened by `exec`). Fix in 0.3.4-dev.1: `-displayfd 1`, no shell (CI-tested only).
+   0.3.4-dev.1 on the device: `wine: chdir to .../files/prefix/wine : No such file or directory` before Xvfb (the
+   display test never created `files/prefix`). Fix in 0.3.5-dev.1 (CI-tested only).
+   0.3.5-dev.1 on the device: **PASSED** (owner, 2026-11-21).
+1. Owner: install app 0.3.5-dev.1 (keep runtime r6), Runtime → Display test → Start, check the screen, pause/resume,
+   let it run a few minutes, Stop, Copy report; send the report and a phone screenshot.
+2. Agent: analyse the device report; step 3.3 (touch input) only after step 3.2 passes on the device.

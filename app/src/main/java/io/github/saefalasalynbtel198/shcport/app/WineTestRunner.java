@@ -33,6 +33,7 @@ import io.github.saefalasalynbtel198.shcport.BuildConfig;
 import io.github.saefalasalynbtel198.shcport.core.ElfInterp;
 import io.github.saefalasalynbtel198.shcport.core.RuntimeLayout;
 import io.github.saefalasalynbtel198.shcport.core.RuntimeProbe;
+import io.github.saefalasalynbtel198.shcport.core.WinePrefixSetup;
 import io.github.saefalasalynbtel198.shcport.core.WineTestPlan;
 
 /**
@@ -140,6 +141,88 @@ final class WineTestRunner {
         String report = sb.toString();
         save(report);
         return report;
+    }
+
+    /** Result of {@link #ensurePrefix}. */
+    static final class PrefixResult {
+        boolean ok;
+        boolean created;
+        String reason = "";
+        String report = "";
+        /** Short form for a successful run: headers, exit lines and checks only. */
+        String summary = "";
+    }
+
+    /**
+     * A usable Wine prefix for the display test, with the same steps, environment and working directory as the
+     * Wine tests (device-verified 6/6): parent directory created and checked first (Wine creates only the last
+     * path component), leftover Wine processes stopped, an incomplete prefix removed, wineboot --init (exit 0) and
+     * wineserver -w (exit 0) with the prefix check, the second way with an app-started wineserver if the first
+     * fails, then Wine stopped. A complete prefix is kept without running wineboot.
+     */
+    PrefixResult ensurePrefix(Progress progress) throws InterruptedException {
+        RuntimeLayout rt = new RuntimeLayout(paths.runtimeDir());
+        File prefix = paths.prefixDir();
+        File tmp = paths.tmpDir();
+        PrefixResult res = new PrefixResult();
+        StringBuilder sb = new StringBuilder();
+        sb.append("Prefix: ").append(prefix).append('\n');
+        sb.append(environment(prefix));
+        sb.append(prepare(prefix));
+        WinePrefixSetup.ParentCheck pc = WinePrefixSetup.ensureParent(prefix);
+        sb.append("== Prefix directory ==\n").append(pc.report);
+        File parent = prefix.getParentFile();
+        if (parent != null) sb.append(describe(parent)).append('\n');
+        sb.append(describe(prefix)).append("\n\n");
+        if (!pc.ok) {
+            res.reason = "the prefix directory cannot be created (see \"Prefix directory\")";
+            return finish(res, sb);
+        }
+        if (WinePrefixSetup.isComplete(prefix)) {
+            sb.append("complete prefix (system.reg, drive_c/windows): kept, wineboot not run\n");
+            res.ok = true;
+            return finish(res, sb);
+        }
+        boolean ok = true;
+        for (WineTestPlan.Step s : WineTestPlan.prefixInitSteps(rt, prefix, tmp)) {
+            Result r = runStep(s, prefix, sb, progress);
+            if (s.prefixInit && !r.ok) {
+                sb.append("== State after the failed prefix initialisation ==\n").append(prefixState(prefix)).append('\n');
+                r.ok = runAlternative(rt, prefix, tmp, sb, progress);
+                sb.append(r.ok ? "Prefix initialisation: FAILED with the wineserver started by wine, PASSED with the wineserver started by the app.\n\n"
+                        : "Prefix initialisation: FAILED both ways.\n\n");
+            }
+            if (!r.ok) {
+                ok = false;
+                res.reason = s.name + " failed (exit " + r.exit + ")";
+                break;
+            }
+        }
+        runStep(WineTestPlan.stopStep(rt, prefix, tmp), prefix, sb, progress);   // no Wine without a display may stay
+        sb.append(finishBackgroundServer());
+        boolean complete = WinePrefixSetup.isComplete(prefix);
+        sb.append("prefix check after creation: system.reg ").append(new File(prefix, "system.reg").isFile() ? "present" : "MISSING")
+                .append(", drive_c/windows ").append(new File(prefix, "drive_c/windows").isDirectory() ? "present" : "MISSING").append('\n');
+        if (ok && !complete) res.reason = "Wine exited 0 but the prefix is incomplete (system.reg or drive_c/windows missing)";
+        res.ok = ok && complete;
+        res.created = res.ok;
+        return finish(res, sb);
+    }
+
+    private static PrefixResult finish(PrefixResult res, StringBuilder sb) {
+        res.report = sb.toString();
+        StringBuilder sum = new StringBuilder();
+        for (String line : res.report.split("\n")) {
+            if (line.startsWith("Prefix:") || line.startsWith("prefix ") || line.startsWith("parent ") || line.startsWith("== ")
+                    || line.startsWith("$ ") || line.startsWith("-> exit") || line.startsWith("post-check") || line.startsWith("complete prefix")
+                    || line.startsWith("existing prefix") || line.startsWith("removing") || line.startsWith("no prefix")
+                    || line.startsWith("Prefix initialisation") || line.startsWith("prefix check") || line.startsWith("  /")
+                    || line.startsWith("/")) {
+                sum.append(line).append('\n');
+            }
+        }
+        res.summary = sum.toString();
+        return res;
     }
 
     // ---------------------------------------------------------------- steps
@@ -405,7 +488,7 @@ final class WineTestRunner {
         }
     }
 
-    private static String describe(File f) {
+    static String describe(File f) {
         try {
             StructStat st = Os.lstat(f.getPath());
             String type = OsConstants.S_ISDIR(st.st_mode) ? "dir" : OsConstants.S_ISSOCK(st.st_mode) ? "socket"

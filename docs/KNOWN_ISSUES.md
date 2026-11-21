@@ -55,3 +55,32 @@
   runtime change.
 * Xvfb is a patched copy of Debian's binary (three path strings); if Debian changes the binary layout the patch
   step fails the build instead of producing a broken package.
+
+## Display test (0.3.2-dev.1 – 0.3.5-dev.1)
+
+* 0.3.2–0.3.4 create the Wine prefix only if `files/prefix` already exists (left by the self-test or the Wine tests);
+  with fresh app data wineboot fails with `chdir to .../prefix/wine : No such file or directory`. Fixed in 0.3.5-dev.1
+  — CI-reproduced and CI-tested, not yet device-tested.
+* CI debug APKs are signed with the CI runner's debug key. If the key differs between builds, Android refuses the
+  update and an uninstall removes the runtime, the prefix and imported files. The APK check prints the certificate
+  digest; a fixed debug key would need a keystore in GitHub secrets (owner decision).
+
+* 0.3.3-dev.1 passes the hard-link check on the device but Xvfb fails with "Cannot write display number to fd 3"
+  (Android's mksh closes fd 3 on exec); fixed in 0.3.4-dev.1 (`-displayfd 1`, no shell) — CI-reproduced and
+  CI-tested, not yet device-tested.
+* After writing the display number Xvfb closes its stdout; descriptor 1 can later be reused inside Xvfb (for example
+  by a client connection). Xvfb itself writes its messages to stderr, and xkbcomp writes its result to a file, so
+  nothing is expected on descriptor 1; the report shows any byte that arrives after the number.
+
+* 0.3.2-dev.1 cannot start Xvfb on Android (hard links are forbidden to apps, Xvfb's lock file needs one); fixed
+  in 0.3.3-dev.1 (`-displayfd`, no lock file) — CI-reproduced and CI-tested, not yet device-tested.
+* Without a lock file, two Xvfb starting at the same instant on the same display are separated only by the
+  abstract socket bind: the second one is refused by the kernel and the app moves to the next display.
+
+* Tearing: Xvfb has no frame lock, so an upload can occasionally mix two frames. Memory access is safe (read-only
+  mapping, new file per session, Xvfb unlinks rather than truncates its file).
+* Latency is not measured end to end; the app uploads a changed picture at most one display frame after Xvfb holds
+  it. Display FPS (screen refresh), uploads/s and Wine content FPS (counter strip) are reported separately.
+* Display numbers :37–:40 are used because abstract sockets are shared by all apps; if all four are taken the test
+  says so.
+* The CI display job uses the r6 artifact of run 44911670217 (expires 2026-12-21).

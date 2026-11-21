@@ -41,7 +41,8 @@ abis=$(sed -n 's#^lib/\([^/]*\)/.*#\1#p' <<<"$listing" | sort -u | tr '\n' ' ' |
 want=$(tr ' ' '\n' <<<"$EXPECTED_ABIS" | sed '/^$/d' | sort -u | tr '\n' ' ' | sed 's/ $//')
 [ "$abis" = "$want" ] || fail "native ABIs are '${abis:-none}', expected '${want:-none}'"
 
-if leaked=$(grep -Ei '\.(exe|gm1|tgx|bik|aiv|sav)$' <<<"$listing"); then
+# The only Windows program allowed is the project's own display test (built by CI from app/winsrc/).
+if leaked=$(grep -Ei '\.(exe|gm1|tgx|bik|aiv|sav)$' <<<"$listing" | grep -v '^assets/shc-display-test\.exe$'); then
   fail "APK contains game data files: $leaked"
 fi
 
@@ -57,6 +58,7 @@ summary=$(cat <<SUM
 | Native ABIs | ${abis:-none} |
 | SHA-256 | \`$(sha256sum "$APK" | cut -d' ' -f1)\` |
 | Signer | $(grep -m1 'certificate DN' apk-signature.txt | sed 's/.*DN: //') |
+| Signer certificate SHA-256 | \`$(grep -m1 'certificate SHA-256 digest' apk-signature.txt | sed 's/.*digest: //')\` |
 SUM
 )
 echo "$summary"
