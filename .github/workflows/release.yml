@@ -90,41 +90,30 @@ jobs:
           gradle --no-daemon --stacktrace :app:assembleRelease
           cp app/build/outputs/apk/release/app-release.apk "stronghold-crusader-android-${TAG}.apk"
 
-      # Without release secrets: the side-by-side development app, signed only with the permanent development key
-      # (pinned certificate, docs/DEV_SIGNING.md); no fallback to an auto-generated key.
-      - name: Development signing key (no release secrets configured)
+      # Without release secrets: the debug-type APK of the app (io.github.saefalasalynbtel198.shcport), signed only with
+      # the SHC key derived from SHC_SIGNING_SEED (pinned certificate, docs/SIGNING.md); no auto-generated key.
+      - name: Signing key (no release secrets configured)
         if: env.HAS_KEYSTORE != 'true'
         env:
-          SHC_DEV_KEYSTORE_BASE64: ${{ secrets.SHC_DEV_KEYSTORE_BASE64 }}
-          SHC_DEV_KEYSTORE_PASSWORD: ${{ secrets.SHC_DEV_KEYSTORE_PASSWORD }}
-          SHC_DEV_KEY_ALIAS: ${{ secrets.SHC_DEV_KEY_ALIAS }}
-          SHC_DEV_KEY_PASSWORD: ${{ secrets.SHC_DEV_KEY_PASSWORD }}
-        run: bash scripts/ci/dev-signing.sh setup
+          SHC_SIGNING_SEED: ${{ secrets.SHC_SIGNING_SEED }}
+        run: bash scripts/ci/signing.sh setup
 
-      - name: Build development APK (no release secrets configured)
+      - name: Build APK signed with the SHC key (no release secrets configured)
         if: env.HAS_KEYSTORE != 'true'
-        env:
-          SHC_DEV_KEYSTORE_PASSWORD: ${{ secrets.SHC_DEV_KEYSTORE_PASSWORD }}
-          SHC_DEV_KEY_ALIAS: ${{ secrets.SHC_DEV_KEY_ALIAS }}
-          SHC_DEV_KEY_PASSWORD: ${{ secrets.SHC_DEV_KEY_PASSWORD }}
         run: |
-          echo "::warning::Release signing secrets not configured; publishing the development APK (...shcport.dev) as a pre-release."
-          gradle --no-daemon --stacktrace :app:assembleDebug -PshcRequireDevKey=true
-          cp app/build/outputs/apk/debug/app-debug.apk "stronghold-crusader-android-${TAG}-dev.apk"
+          echo "::warning::Release signing secrets not configured; publishing the APK signed with the SHC key as a pre-release."
+          gradle --no-daemon --stacktrace :app:assembleDebug -PshcRequireSigningKey=true
+          cp app/build/outputs/apk/debug/app-debug.apk "stronghold-crusader-android-${TAG}.apk"
 
-      - name: Remove the development keystore from the runner
+      - name: Remove the temporary keystore
         if: always()
-        run: bash scripts/ci/dev-signing.sh cleanup
+        run: bash scripts/ci/signing.sh cleanup
 
       - name: Verify APK
         run: |
           apk=$(ls stronghold-crusader-android-*.apk)
-          if [ "$HAS_KEYSTORE" != "true" ]; then
-            EXPECTED_PACKAGE=io.github.saefalasalynbtel198.shcport.dev bash scripts/ci/verify-apk.sh "$apk" "${TAG#v}"
-            bash scripts/ci/dev-signing.sh verify "$apk"
-          else
-            bash scripts/ci/verify-apk.sh "$apk" "${TAG#v}"
-          fi
+          bash scripts/ci/verify-apk.sh "$apk" "${TAG#v}"
+          if [ "$HAS_KEYSTORE" != "true" ]; then bash scripts/ci/signing.sh verify "$apk"; fi
           sha256sum "$apk" > "$apk.sha256"
 
       - name: Create GitHub Release

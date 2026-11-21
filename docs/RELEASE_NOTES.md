@@ -1,12 +1,12 @@
 # Release notes
 
-## 0.3.6-dev.2 — side-by-side development app with a permanent development key (not a playable game)
+## 0.3.6-dev.3 — permanent signing key; replaces 0.3.5-dev.1 (not a playable game)
 
-* Debug builds are now a separate app: application ID `io.github.saefalasalynbtel198.shcport.dev`, label
-  "SHC Port DEV", with their own app storage. They install next to the 0.3.5-dev.1 app (`...shcport`), which is not
-  touched. The development app needs its own runtime installation and game import.
-* Signed only with the owner's permanent development key from GitHub Actions secrets, pinned by certificate
-  fingerprint; CI builds no APK without it (docs/DEV_SIGNING.md).
+* The app keeps its ID `io.github.saefalasalynbtel198.shcport` (label "SHC Port") and is signed with one permanent key,
+  derived in CI from the GitHub Actions secret SHC_SIGNING_SEED and pinned by its certificate (docs/SIGNING.md).
+  Later APKs install as updates and keep the app's data.
+* 0.3.5-dev.1 was signed with a throwaway CI key and must be uninstalled once before installing this APK; afterwards:
+  install runtime r6 from its zip, import the game from its original folder (the Wine prefix is created automatically).
 * Game launch test (step 3.3) unchanged from 0.3.6-dev.1. Start Game stays disabled. No runtime change (r6).
 
 ## 0.3.6-dev.1 — BUILD 3 step 3.3: game launch test (development build, not a playable game)

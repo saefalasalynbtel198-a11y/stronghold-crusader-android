@@ -8,7 +8,7 @@ set -euo pipefail
 
 APK="${1:?usage: verify-apk.sh <apk> [expected-version-name]}"
 EXPECTED_VERSION="${2:-}"
-EXPECTED_PACKAGE="${EXPECTED_PACKAGE:-io.github.saefalasalynbtel198.shcport}"   # debug builds: ...shcport.dev
+EXPECTED_PACKAGE="${EXPECTED_PACKAGE:-io.github.saefalasalynbtel198.shcport}"
 EXPECTED_ABIS="${EXPECTED_ABIS:-}"
 BT="${ANDROID_HOME:?ANDROID_HOME not set}/build-tools/${BUILD_TOOLS:-35.0.0}"
 

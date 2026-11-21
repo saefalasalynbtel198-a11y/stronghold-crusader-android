@@ -1,15 +1,16 @@
 #!/usr/bin/env bash
 # Emulator smoke test: install, launch, survive background/foreground, no fatal exceptions.
-# With an old APK (the owner's 0.3.5-dev.1, package ...shcport) it first installs that one and checks that the new
-# side-by-side app (package ...shcport.dev) installs next to it, cannot read its data, and leaves it unchanged.
-# Usage: smoke-test.sh <apk> <output-dir> [old-apk]
+# With the owner's old 0.3.5-dev.1 APK: checks that the new APK cannot update it (different signing key, so the one-time
+# uninstall on the phone is expected), then removes it ON THE EMULATOR ONLY. With an update APK (same package, version
+# code + 1, built on another runner with the same SHC key): installs it over the new app and checks the app's data stays.
+# Usage: smoke-test.sh <apk> <output-dir> [old-apk] [update-apk]
 set -euo pipefail
 APK="${1:?apk}"
 OUT="${2:-smoke-test-output}"
 OLD_APK="${3:-}"
-PKG="io.github.saefalasalynbtel198.shcport.dev"
-OLD_PKG="io.github.saefalasalynbtel198.shcport"
-ACT="io.github.saefalasalynbtel198.shcport.app.MainActivity"   # class names are the same in both apps
+UPDATE_APK="${4:-}"
+PKG="io.github.saefalasalynbtel198.shcport"
+ACT="io.github.saefalasalynbtel198.shcport.app.MainActivity"
 mkdir -p "$OUT"
 
 fail() {
@@ -37,31 +38,24 @@ app_pid() {
 adb wait-for-device
 adb shell getprop ro.build.version.release > "$OUT/android-version.txt"
 apksigner=$(ls -d "$ANDROID_HOME"/build-tools/*/apksigner 2> /dev/null | sort -V | tail -n1)
-old_state() {   # version, signing certificate and file listing of the old app
-  adb shell dumpsys package "$OLD_PKG" | grep -m1 versionName | tr -d '\r '
-  adb pull "$(adb shell pm path "$OLD_PKG" | sed -n 's/^package://p' | tr -d '\r')" "$OUT/old-installed.apk" > /dev/null
-  "$apksigner" verify --print-certs "$OUT/old-installed.apk" | grep -m1 "certificate SHA-256"
-  adb shell run-as "$OLD_PKG" ls -lR files | tr -d '\r'
+installed_cert() {
+  adb pull "$(adb shell pm path "$PKG" | sed -n 's/^package://p' | tr -d '\r')" "$OUT/installed.apk" > /dev/null
+  "$apksigner" verify --print-certs "$OUT/installed.apk" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p'
 }
+pkg_field() { adb shell dumpsys package "$PKG" | grep -m1 "$1" | tr -d '\r' | sed 's/^ *//'; }
 if [ -n "$OLD_APK" ]; then
-  echo "== side-by-side: the 0.3.5-dev.1 app first"
-  adb install "$OLD_APK" || fail "installing the 0.3.5 APK failed"
-  adb shell am start -W -n "$OLD_PKG/$ACT" > /dev/null; sleep 5
-  adb shell run-as "$OLD_PKG" sh -c 'mkdir -p files/side-by-side && echo "data of the 0.3.5 app" > files/side-by-side/marker.txt' \
-    || fail "cannot write the marker into the 0.3.5 app's data"
-  adb shell am force-stop "$OLD_PKG"
-  old_state > "$OUT/old-before.txt"
-  head -2 "$OUT/old-before.txt"
-fi
-adb install -r "$APK" || fail "install failed"
-if [ -n "$OLD_APK" ]; then
-  adb shell pm list packages | tr -d '\r' | grep -E "^package:$OLD_PKG(\.dev)?$" | sort | tee "$OUT/packages.txt"
-  [ "$(wc -l < "$OUT/packages.txt")" -eq 2 ] || fail "the two apps are not installed side by side"
-  if adb shell run-as "$PKG" ls "/data/data/$OLD_PKG/files" > "$OUT/cross-read.txt" 2>&1 && ! grep -qi "denied\|No such" "$OUT/cross-read.txt"; then
-    fail "the new app can read the 0.3.5 app's data"
+  echo "== the 0.3.5-dev.1 APK cannot be updated by the new APK (expected: different signing key)"
+  adb install "$OLD_APK" > /dev/null || fail "installing the 0.3.5 APK failed"
+  echo "installed: $(pkg_field versionName), certificate $(installed_cert)"
+  if adb install -r "$APK" > "$OUT/update-over-0.3.5.txt" 2>&1; then
+    fail "the new APK installed over 0.3.5 although the keys differ (unexpected)"
   fi
-  echo "new app reading the 0.3.5 app's data: $(head -c 120 "$OUT/cross-read.txt" | tr -d '\r')"
+  grep -o "INSTALL_FAILED_UPDATE_INCOMPATIBLE[^]]*" "$OUT/update-over-0.3.5.txt" | head -1 || cat "$OUT/update-over-0.3.5.txt"
+  grep -q "INSTALL_FAILED_UPDATE_INCOMPATIBLE" "$OUT/update-over-0.3.5.txt" || fail "unexpected install error (see update-over-0.3.5.txt)"
+  adb uninstall "$PKG" > /dev/null   # emulator only
 fi
+adb install "$APK" || fail "install failed"
+echo "installed: $(pkg_field versionName), $(pkg_field versionCode | cut -d' ' -f1), certificate $(installed_cert)"
 adb logcat -c
 
 adb shell am start -W -n "$PKG/$ACT" | tee "$OUT/am-start.txt"
@@ -110,12 +104,25 @@ if grep -E "FATAL EXCEPTION|ANR in $PKG" "$OUT/logcat.txt"; then
   fail "crash or ANR detected"
 fi
 grep -q "ShcPort.*Started" "$OUT/logcat.txt" || fail "application start log line not found"
-if [ -n "$OLD_APK" ]; then
-  echo "== side-by-side: the 0.3.5-dev.1 app afterwards"
-  old_state > "$OUT/old-after.txt"
-  diff "$OUT/old-before.txt" "$OUT/old-after.txt" || fail "the 0.3.5 app changed (version, certificate or data)"
-  adb shell run-as "$OLD_PKG" cat files/side-by-side/marker.txt | grep -q "data of the 0.3.5 app" || fail "0.3.5 marker lost"
-  adb shell am start -W -n "$OLD_PKG/$ACT" | grep -q "Status: ok" || fail "the 0.3.5 app does not start any more"
-  echo "Side-by-side passed: $(head -1 "$OUT/old-after.txt"), $(sed -n 2p "$OUT/old-after.txt"); data unchanged; still starts."
+if [ -n "$UPDATE_APK" ]; then
+  echo "== update test: install the second, independently built APK over this one; the app's data must stay"
+  adb shell am force-stop "$PKG"
+  adb shell run-as "$PKG" sh -c 'mkdir -p files/update-test && echo "written before the update" > files/update-test/marker.txt' \
+    || fail "cannot write test data into the app"
+  before_files=$(adb shell run-as "$PKG" ls -R files | tr -d '\r' | sort | sha256sum | cut -c1-16)
+  first_before=$(pkg_field firstInstallTime); cert_before=$(installed_cert); code_before=$(pkg_field versionCode | cut -d' ' -f1)
+  adb install -r "$UPDATE_APK" > "$OUT/update.txt" 2>&1 || { cat "$OUT/update.txt"; fail "the update APK did not install over the app"; }
+  first_after=$(pkg_field firstInstallTime); cert_after=$(installed_cert); code_after=$(pkg_field versionCode | cut -d' ' -f1)
+  after_files=$(adb shell run-as "$PKG" ls -R files | tr -d '\r' | sort | sha256sum | cut -c1-16)
+  marker=$(adb shell run-as "$PKG" cat files/update-test/marker.txt | tr -d '\r')
+  echo "before: $code_before, $first_before, certificate $cert_before"
+  echo "after:  $code_after, $first_after, certificate $cert_after"
+  [ "$code_before" != "$code_after" ] || fail "version code did not change (not an update)"
+  [ "$first_before" = "$first_after" ] || fail "firstInstallTime changed: the app was reinstalled, not updated"
+  [ "$cert_before" = "$cert_after" ] || fail "certificate changed across the update"
+  [ "$marker" = "written before the update" ] || fail "app data lost in the update"
+  [ "$before_files" = "$after_files" ] || fail "app files differ after the update"
+  adb shell am start -W -n "$PKG/$ACT" | grep -q "Status: ok" || fail "the updated app does not start"
+  echo "Update test passed: $code_before -> $code_after, same certificate, same first install time, app data kept, app starts."
 fi
 echo "Smoke test passed (pid $pid → $pid2)."

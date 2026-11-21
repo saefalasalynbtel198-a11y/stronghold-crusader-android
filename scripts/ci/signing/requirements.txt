@@ -1,0 +1,5 @@
+# Exact packages for scripts/ci/signing/shc_signing.py (Linux x86_64; cffi wheels for CPython 3.12 and 3.13),
+# installed with --require-hashes.
+cryptography==46.0.0 --hash=sha256:d5c0cbb2fb522f7e39b59a5482a1c9c5923b7c506cfe96a1b8e7368c31617ac0
+cffi==2.1.1 --hash=sha256:c1453022f490d2459a11819d83ad1d586e9ff65a12ac3e705ffebd46d3685dcf --hash=sha256:a931079504ecc49efed7744c476a5c343a92fabf66dec2db95edb1b2fdc770e2
+pycparser==3.12 --hash=sha256:a076f3f489b39b43ed13563a1dafe42447445bec2e294154ec5c57fcdda4c85e
