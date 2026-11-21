@@ -220,6 +220,9 @@ static void probe_all(void) {
 
     /* Controls: Android's app filter is documented to block these; on desktop Linux they are allowed. */
     PROBE("control: setuid(own uid)", SYS_setuid, SC(SYS_getuid, 0, 0, 0, 0, 0, 0), 0, 0, 0, 0, 0);
+    /* runtime r6 glibc avoids these: Xvfb's setgid(getgid()), Wine X11's shmget */
+    PROBE("setgid(own gid)", SYS_setgid, SC(SYS_getgid, 0, 0, 0, 0, 0, 0), 0, 0, 0, 0, 0);
+    PROBE("shmget (size 0, invalid)", SYS_shmget, 0, 0, 0, 0, 0, 0);
     PROBE("control: mount (null args)", SYS_mount, 0, 0, 0, 0, 0, 0);
 
     out("blocked: "); outl(g_blocked); out(" ["); out(g_blocked_list); out("]\n");

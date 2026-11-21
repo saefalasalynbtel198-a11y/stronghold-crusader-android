@@ -6,7 +6,9 @@
  *   sim-android-filter android16 <cmd...>   traps the syscalls the seccomp probe reported as BLOCKED on
  *                                           Xiaomi 25053PC47G / Android 16 (SDK 36), plus clone3 and
  *                                           fchmodat2, which older Android releases also block, and accept,
- *                                           which Android's arm64 app filter lacks (bionic uses accept4)
+ *                                           which Android's arm64 app filter lacks (bionic uses accept4), and
+ *                                           setuid/setgid and the System V shared-memory calls (all trapped
+ *                                           for apps; the device probe shows setuid and setgid)
  *
  * It does not replicate Android's full allowlist; it reproduces the observed failures.
  */
@@ -46,7 +48,8 @@ int main(int c, char **v) {
   static const int rseq_set[] = { SYS_rseq, SYS_mount };
   static const int a16_set[] = { SYS_rseq, SYS_set_robust_list, SYS_get_robust_list, SYS_faccessat2,
                                  SYS_openat2, SYS_futex_waitv, SYS_io_uring_setup, SYS_set_mempolicy_home_node,
-                                 SYS_mount, SYS_clone3, SYS_fchmodat2, SYS_accept };
+                                 SYS_mount, SYS_clone3, SYS_fchmodat2, SYS_accept,
+                                 SYS_setuid, SYS_setgid, SYS_shmget, SYS_shmat, SYS_shmdt, SYS_shmctl };
   const int *set; int n;
   if (c < 3) { fprintf(stderr, "usage: %s rseq|android16 cmd...\n", v[0]); return 2; }
   if (!strcmp(v[1], "rseq")) { set = rseq_set; n = 2; }

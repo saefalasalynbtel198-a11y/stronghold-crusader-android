@@ -1,0 +1,7 @@
+#!/bin/sh
+# Runtime r6+: started by Xvfb (through /bin/sh) as "./xkbcomp" in the runtime's x11/ directory to compile the
+# keymap (Xvfb's XKB_BIN_DIRECTORY is patched to "."; see scripts/patch-xvfb-paths.py). Runs the packaged
+# xkbcomp with the runtime's Android-patched glibc loader. Finds the runtime from its own location.
+case "$0" in */*) d="${0%/*}" ;; *) d=. ;; esac
+rt="$(cd "$d/.." && pwd)" || exit 127
+exec "$rt/lib/aarch64-linux-gnu/ld-linux-aarch64.so.1" --library-path "$rt/lib/aarch64-linux-gnu" "$rt/x11/bin/xkbcomp" "$@"
