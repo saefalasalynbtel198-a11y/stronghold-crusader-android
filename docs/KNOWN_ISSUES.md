@@ -56,7 +56,14 @@
 * Xvfb is a patched copy of Debian's binary (three path strings); if Debian changes the binary layout the patch
   step fails the build instead of producing a broken package.
 
-## Display test (0.3.2-dev.1 – 0.3.4-dev.1)
+## Display test (0.3.2-dev.1 – 0.3.5-dev.1)
+
+* 0.3.2–0.3.4 create the Wine prefix only if `files/prefix` already exists (left by the self-test or the Wine tests);
+  with fresh app data wineboot fails with `chdir to .../prefix/wine : No such file or directory`. Fixed in 0.3.5-dev.1
+  — CI-reproduced and CI-tested, not yet device-tested.
+* CI debug APKs are signed with the CI runner's debug key. If the key differs between builds, Android refuses the
+  update and an uninstall removes the runtime, the prefix and imported files. The APK check prints the certificate
+  digest; a fixed debug key would need a keystore in GitHub secrets (owner decision).
 
 * 0.3.3-dev.1 passes the hard-link check on the device but Xvfb fails with "Cannot write display number to fd 3"
   (Android's mksh closes fd 3 on exec); fixed in 0.3.4-dev.1 (`-displayfd 1`, no shell) — CI-reproduced and

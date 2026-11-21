@@ -22,6 +22,8 @@ import io.github.saefalasalynbtel198.shcport.core.XvfbStarter;
  *   start <runtime> <fbbase> <logdir> <first> <last> [--no-probe] [-- prefix...]: the app's XvfbStarter with real
  *     processes (prefix: e.g. the hard-link filter); leaves Xvfb running, prints "display N" and "pid P"
  *   cycle <runtime> <fbbase> <logdir> <rounds> [-- prefix...]: start on :37, check stdout, stop, check cleanup
+ *   prefix-init <runtime> <prefix> <tmp> [--no-parent]: the display test's prefix stage (WinePrefixSetup +
+ *     WineTestPlan.prefixInitSteps, run with ProcessBuilder like the app); --no-parent = as 0.3.2-0.3.4 (no mkdirs)
  *   wine-env <runtime> <prefix> <tmp> <display> | wine-argv <runtime> <exe> | check <framebuffer file>
  */
 public final class DisplayCli {
@@ -32,6 +34,9 @@ public final class DisplayCli {
                 break;
             case "start":          // start <runtime> <fbbase> <logdir> <first> <last> [--no-probe] [-- prefix...]
                 System.exit(start(a));
+                break;
+            case "prefix-init":    // prefix-init <runtime> <prefix> <tmp> [--no-parent]
+                System.exit(prefixInit(a));
                 break;
             case "cycle":          // cycle <runtime> <fbbase> <logdir> <rounds> [-- prefix...]
                 System.exit(cycle(a));
@@ -186,5 +191,73 @@ public final class DisplayCli {
             if (!ok) bad++;
         }
         return bad == 0 ? 0 : 1;
+    }
+
+    /**
+     * The app's prefix stage with real processes: parent directory (WinePrefixSetup), then the Wine tests' prefix
+     * steps (argv, environment, working directory as in the app) with their exit-code and prefix checks, then
+     * wineserver -k. CI difference: qemu-user has no ptrace, so the process watcher in front of wineboot is left out.
+     */
+    private static int prefixInit(String[] a) throws Exception {
+        RuntimeLayout rt = new RuntimeLayout(new File(a[1]));
+        File prefix = new File(a[2]), tmp = new File(a[3]);
+        boolean noParent = Arrays.asList(a).contains("--no-parent");
+        tmp.mkdirs();
+        if (!noParent) {
+            io.github.saefalasalynbtel198.shcport.core.WinePrefixSetup.ParentCheck pc =
+                    io.github.saefalasalynbtel198.shcport.core.WinePrefixSetup.ensureParent(prefix);
+            System.out.print(pc.report);
+            if (!pc.ok) { System.out.println("result FAIL: prefix directory"); return 1; }
+        } else {
+            System.out.println("prefix " + prefix + ": " + io.github.saefalasalynbtel198.shcport.core.WinePrefixSetup.state(prefix)
+                    + "; parent " + prefix.getParentFile() + ": " + io.github.saefalasalynbtel198.shcport.core.WinePrefixSetup.state(prefix.getParentFile())
+                    + " (not created: behaviour of 0.3.2-0.3.4)");
+        }
+        if (io.github.saefalasalynbtel198.shcport.core.WinePrefixSetup.isComplete(prefix)) {
+            System.out.println("result KEPT: complete prefix (system.reg, drive_c/windows), wineboot not run");
+            return 0;
+        }
+        boolean ok = true;
+        for (io.github.saefalasalynbtel198.shcport.core.WineTestPlan.Step s
+                : io.github.saefalasalynbtel198.shcport.core.WineTestPlan.prefixInitSteps(rt, prefix, tmp)) {
+            int exit = runStep(s);
+            boolean exitOk = s.expectedExit == null || exit == s.expectedExit;
+            boolean post = s.postCheck != io.github.saefalasalynbtel198.shcport.core.WineTestPlan.Check.PREFIX_CREATED
+                    || io.github.saefalasalynbtel198.shcport.core.WinePrefixSetup.isComplete(prefix);
+            System.out.println("step \"" + s.name + "\": exit " + exit + (exitOk ? "" : " (expected " + s.expectedExit + ")")
+                    + (post ? "" : "; prefix check FAILED") + " -> " + (exitOk && post ? "PASS" : "FAIL"));
+            if (!(exitOk && post)) { ok = false; break; }
+        }
+        runStep(io.github.saefalasalynbtel198.shcport.core.WineTestPlan.stopStep(rt, prefix, tmp));
+        boolean complete = io.github.saefalasalynbtel198.shcport.core.WinePrefixSetup.isComplete(prefix);
+        System.out.println("prefix check: system.reg " + (new File(prefix, "system.reg").isFile() ? "present" : "MISSING")
+                + ", drive_c/windows " + (new File(prefix, "drive_c/windows").isDirectory() ? "present" : "MISSING"));
+        System.out.println("result " + (ok && complete ? "CREATED" : "FAIL"));
+        return ok && complete ? 0 : 1;
+    }
+
+    private static int runStep(io.github.saefalasalynbtel198.shcport.core.WineTestPlan.Step s) throws Exception {
+        List<String> argv = new ArrayList<>(s.argv);
+        int dd = argv.indexOf("--");
+        if (dd > 0 && argv.get(dd - 1).endsWith("shc-ptrace-watch")) argv = new ArrayList<>(argv.subList(dd + 1, argv.size()));
+        System.out.println("$ (cwd " + s.cwd + ") " + String.join(" ", argv));
+        ProcessBuilder pb = new ProcessBuilder(argv).directory(s.cwd).redirectErrorStream(true);
+        pb.environment().remove("LD_LIBRARY_PATH");
+        pb.environment().putAll(s.env);
+        Process p = pb.start();
+        p.getOutputStream().close();
+        java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+        Thread t = new Thread(() -> {
+            try (java.io.InputStream in = p.getInputStream()) { in.transferTo(out); } catch (java.io.IOException ignored) { }
+        });
+        t.start();
+        boolean done = p.waitFor(s.timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS);
+        if (!done) p.destroyForcibly();
+        t.join(5000);
+        String o = out.toString(java.nio.charset.StandardCharsets.UTF_8);
+        String[] lines = o.split("\n");
+        int from = Math.max(0, lines.length - 25);
+        for (int i = from; i < lines.length; i++) if (!lines[i].isEmpty()) System.out.println("  | " + lines[i]);
+        return done ? p.exitValue() : -1;
     }
 }

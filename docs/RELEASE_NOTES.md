@@ -1,5 +1,17 @@
 # Release notes
 
+## 0.3.5-dev.1 — BUILD 3 step 3.2 fix: Wine prefix in the display test (development build, not a playable game)
+
+* Fix for the device failure of 0.3.4-dev.1 (`wine: chdir to .../files/prefix/wine : No such file or directory`):
+  Wine creates only the last directory of WINEPREFIX; the display test never created `files/prefix` (the Wine tests
+  and the self-test do). The display test now creates and checks it first.
+* The display test creates the prefix with the Wine tests' own steps and checks (wineboot --init and wineserver -w
+  must exit 0, `system.reg` and `drive_c/windows` must exist), in the runtime directory, and stops Wine again.
+  Xvfb starts only after the prefix is ready.
+* Report: prefix path, existence, creation result, write test, owner/mode, every Wine command with exit code.
+* APK check prints the signing certificate's SHA-256.
+* Xvfb changes of 0.3.3/0.3.4 kept. No runtime change (r6). Start Game stays disabled.
+
 ## 0.3.4-dev.1 — BUILD 3 step 3.2 fix: Xvfb readiness on stdout (development build, not a playable game)
 
 * Fix for the device failure of 0.3.3-dev.1 (`Cannot write display number to fd 3`): Android's `/system/bin/sh`

@@ -58,6 +58,7 @@ summary=$(cat <<SUM
 | Native ABIs | ${abis:-none} |
 | SHA-256 | \`$(sha256sum "$APK" | cut -d' ' -f1)\` |
 | Signer | $(grep -m1 'certificate DN' apk-signature.txt | sed 's/.*DN: //') |
+| Signer certificate SHA-256 | \`$(grep -m1 'certificate SHA-256 digest' apk-signature.txt | sed 's/.*digest: //')\` |
 SUM
 )
 echo "$summary"

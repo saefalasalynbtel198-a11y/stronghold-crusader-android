@@ -23,8 +23,10 @@ import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
 import io.github.saefalasalynbtel198.shcport.BuildConfig;
+import io.github.saefalasalynbtel198.shcport.core.DisplayStartOrder;
 import io.github.saefalasalynbtel198.shcport.core.RuntimeLayout;
 import io.github.saefalasalynbtel198.shcport.core.RuntimeProbe;
+import io.github.saefalasalynbtel198.shcport.core.WinePrefixSetup;
 import io.github.saefalasalynbtel198.shcport.core.WineTestPlan;
 import io.github.saefalasalynbtel198.shcport.core.X11DisplayPlan;
 
@@ -85,44 +87,77 @@ final class DisplayTestSession {
         }
     }
 
-    /** Returns the framebuffer file to draw once Xvfb is ready, or null when the test could not start. */
+    private File exe;
+    private File prefix;
+    private String stamp;
+    private File fbFile;
+    /** Report of the Wine prefix stage (also kept when it succeeds). */
+    String prefixReport = "";
+
+    /**
+     * Returns the framebuffer file to draw once Xvfb is ready, or null when the test could not start. Stages in
+     * the order of {@link DisplayStartOrder}: runtime, Wine prefix, Xvfb, test program.
+     */
     File start(Runnable onXvfbReady) throws InterruptedException {
         log("SHC port " + BuildConfig.VERSION_NAME + " display test; " + Build.MANUFACTURER + " " + Build.MODEL
                 + ", Android " + Build.VERSION.RELEASE + " (SDK " + Build.VERSION.SDK_INT + ")");
         log("runtime: " + readText(rt.versionFile()));
-        set(State.PREPARING, "Preparing");
-        if (!rt.looksInstalled()) { fail("runtime not installed"); return null; }
-        if (!rt.hasX11()) { fail("this runtime has no X server: install runtime r6 or newer"); return null; }
-        File exe = copyTestProgram();
-        if (exe == null) return null;
-        File prefix = paths.prefixDir();
-        File logs = paths.logsDir();
-        String stamp = new SimpleDateFormat("yyyyMMdd-HHmmss", Locale.ROOT).format(new Date());
+        prefix = paths.prefixDir();
+        stamp = new SimpleDateFormat("yyyyMMdd-HHmmss", Locale.ROOT).format(new Date());
+        DisplayStartOrder.Stage failed = DisplayStartOrder.run(new DisplayStartOrder.Stages() {
+            @Override public boolean runtime() { return runtimeStage(); }
+            @Override public boolean prefix() throws InterruptedException { return prefixStage(); }
+            @Override public boolean xvfb() throws InterruptedException { return xvfbStage(onXvfbReady); }
+            @Override public boolean testProgram() { return testProgramStage(); }
+        });
+        if (failed != null) log("start stopped at stage " + failed + (failed == DisplayStartOrder.Stage.PREFIX
+                ? " (Xvfb was not started)" : ""));
+        // the screen is drawn once Xvfb runs, even if the test program could not be started
+        return failed == null || failed == DisplayStartOrder.Stage.TEST_PROGRAM ? fbFile : null;
+    }
 
-        // Leftovers: an earlier Xvfb, and Wine processes started without a display (Wine's desktop process decides
-        // the display driver for later programs, found in the CI feasibility test).
+    private boolean runtimeStage() {
+        set(State.PREPARING, "Preparing");
+        if (!rt.looksInstalled()) { fail("runtime not installed"); return false; }
+        if (!rt.hasX11()) { fail("this runtime has no X server: install runtime r6 or newer"); return false; }
+        exe = copyTestProgram();
+        if (exe == null) return false;
+        // An earlier Xvfb, and Wine processes started without a display (Wine's desktop process decides the display
+        // driver for later programs, found in the CI feasibility test).
         List<Integer> oldX = ProcInfo.find("/x11/Xvfb");
         if (!oldX.isEmpty()) { log("stopping leftover Xvfb " + oldX); ProcInfo.kill(oldX); }
         if (!ProcInfo.find("wineserver", "/wine/bin/wine").isEmpty()) {
             log("stopping leftover Wine processes: " + run("wineserver -k", Arrays.asList(rt.box64().getPath(),
                     new File(rt.wineBinDir(), "wineserver").getPath(), "-k"), baseWineEnv(), 60));
         }
-        if (!new File(prefix, "system.reg").isFile()) {
-            set(State.PREPARING, "Creating the Wine prefix (first run, can take minutes)");
-            log(run("wineboot --init", Arrays.asList(rt.box64().getPath(), rt.wine().getPath(), "wineboot", "--init"),
-                    baseWineEnv(), 20 * 60));
-            log(run("wineserver -w", Arrays.asList(rt.box64().getPath(), new File(rt.wineBinDir(), "wineserver").getPath(), "-w"),
-                    baseWineEnv(), 300));
-            log(run("wineserver -k", Arrays.asList(rt.box64().getPath(), new File(rt.wineBinDir(), "wineserver").getPath(), "-k"),
-                    baseWineEnv(), 60));
-            if (!new File(prefix, "system.reg").isFile()) { fail("Wine prefix could not be created (run the Wine tests)"); return null; }
-        }
+        return true;
+    }
 
-        // Xvfb, in a new framebuffer directory for this session (older ones removed)
+    /**
+     * The Wine prefix, with the device-verified sequence of the Wine tests ({@link WineTestRunner#ensurePrefix}):
+     * parent directory created and checked, incomplete prefix removed, wineboot --init and wineserver -w with exit 0,
+     * system.reg and drive_c/windows present, Wine stopped again (Wine started without a display must not stay).
+     */
+    private boolean prefixStage() throws InterruptedException {
+        boolean fresh = !WinePrefixSetup.isComplete(prefix);
+        set(State.PREPARING, fresh ? "Creating the Wine prefix (first run, can take minutes)" : "Checking the Wine prefix");
+        WineTestRunner.PrefixResult r = new WineTestRunner(paths).ensurePrefix(m -> listener.onState(State.PREPARING, m));
+        prefixReport = r.report;
+        log("Wine prefix:\n" + (r.ok ? r.summary : r.report));
+        if (!r.ok) {
+            fail("Wine prefix could not be created: " + r.reason);
+            return false;
+        }
+        log("Wine prefix ready (" + (r.created ? "created now" : "existing prefix kept") + ")");
+        return true;
+    }
+
+    private boolean xvfbStage(Runnable onXvfbReady) throws InterruptedException {
+        // in a new framebuffer directory for this session (older ones removed)
         File fbRoot = new File(paths.internalRoot(), "x11-fb");
         deleteTree(fbRoot);
         File fbDir = new File(fbRoot, stamp);
-        x11 = new X11Display(rt, fbDir, new File(logs, "display-xvfb-" + stamp + ".log"));
+        x11 = new X11Display(rt, fbDir, new File(paths.logsDir(), "display-xvfb-" + stamp + ".log"));
         set(State.STARTING_XVFB, "Starting Xvfb");
         log("Xvfb working directory check: " + x11.preflight());
         String why = x11.start(120_000);
@@ -134,7 +169,7 @@ final class DisplayTestSession {
             xvfbStatus = "failed: " + why;
             log("Xvfb log:\n" + x11.logTail(6000));
             fail("Xvfb: " + why);
-            return null;
+            return false;
         }
         xvfbStatus = "running on " + X11DisplayPlan.displayName(x11.display) + " (abstract socket @"
                 + X11DisplayPlan.abstractSocketName(x11.display) + ", ready after " + x11.readyMs + " ms)";
@@ -145,15 +180,19 @@ final class DisplayTestSession {
             Thread.currentThread().interrupt();
         }
         log("Xvfb stdout: " + x11.stdout.afterLineSummary());
-        File fbFile = x11.framebufferFile();
+        fbFile = x11.framebufferFile();
         log("framebuffer file: " + fbFile + " (" + fbFile.length() + " bytes)");
         xdpyinfoSummary = xdpyinfo();
         log("xdpyinfo: " + xdpyinfoSummary);
         onXvfbReady.run();
+        return true;
 
-        // the test program through Box64 + Wine, with the display
+    }
+
+    private boolean testProgramStage() {
+        // through Box64 + Wine, with the display
         set(State.STARTING_WINE, "Starting the test program through Box64 + Wine");
-        wineLog = new File(logs, "display-wine-" + stamp + ".log");
+        wineLog = new File(paths.logsDir(), "display-wine-" + stamp + ".log");
         try {
             ProcessBuilder pb = new ProcessBuilder(X11DisplayPlan.testProgramArgv(rt, exe)).directory(new File(prefix, "drive_c"))
                     .redirectErrorStream(true).redirectOutput(ProcessBuilder.Redirect.appendTo(wineLog));
@@ -161,10 +200,10 @@ final class DisplayTestSession {
             wine = pb.start();
         } catch (Exception e) {
             fail("could not start Wine: " + e.getMessage());
-            return fbFile;
+            return false;
         }
         wineStatus = "starting";
-        return fbFile;
+        return true;
     }
 
     /** Called about once a second by the activity while the test runs. */
@@ -357,7 +396,7 @@ final class DisplayTestSession {
     /** Runs a command to completion (at most timeoutS) and returns "label: exit N" plus the end of its output. */
     private String run(String label, List<String> argv, Map<String, String> env, int timeoutS) {
         try {
-            ProcessBuilder pb = new ProcessBuilder(argv).redirectErrorStream(true);
+            ProcessBuilder pb = new ProcessBuilder(argv).redirectErrorStream(true).directory(rt.root);
             pb.environment().remove("LD_LIBRARY_PATH");
             pb.environment().putAll(env);
             Process p = pb.start();

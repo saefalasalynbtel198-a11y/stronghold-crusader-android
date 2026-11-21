@@ -75,20 +75,10 @@ public final class WineTestPlan {
         String wine = rt.wine().getPath();
         String wineserver = new File(rt.wineBinDir(), "wineserver").getPath();
         File driveC = new File(prefixDir, "drive_c");
-        Map<String, String> initEnv = new LinkedHashMap<>(env);
-        initEnv.put("BOX64_LOG", "1");   // which libraries each Box64 process loads, process renames
         List<Step> s = new ArrayList<>();
         s.add(new Step("Box64 direct exec (PT_INTERP = patched glibc loader)", Arrays.asList(box64, "--version"),
                 env, rt.root, 30_000, 0, "Box64", Check.NONE, true));
-        Step init = new Step("wineboot --init (create Wine prefix; wine starts wineserver itself)",
-                watched(rt, Arrays.asList(box64, wine, "wineboot", "--init")),
-                initEnv, rt.root, 20 * 60_000, 0, null, Check.NONE, true);
-        init.prefixInit = true;
-        s.add(init);
-        // wineboot returns while wineserver is still running; the registry (system.reg) is only written
-        // when wineserver flushes it on exit, so wait for the server before checking the prefix.
-        s.add(new Step("wineserver -w (wait for Wine to save the prefix)", Arrays.asList(box64, wineserver, "-w"),
-                env, rt.root, 5 * 60_000, 0, null, Check.PREFIX_CREATED, true));
+        s.addAll(prefixInitSteps(rt, prefixDir, tmpDir));
         s.add(new Step("wineserver directory inside the prefix", Arrays.asList(box64, wineserver, "-p5"),
                 env, rt.root, 60_000, null, null, Check.WINESERVER_DIR, true));
         s.add(new Step("Windows PE smoke test, 64-bit", watched(rt, Arrays.asList(box64, wine, rt.peSmoke64().getPath(), "C:\\")),
@@ -103,9 +93,38 @@ public final class WineTestPlan {
                     Arrays.asList(box64, wine, "D:\\" + gameExe), gameEnv, gameDir, 90_000,
                     null, null, Check.NONE, false));
         }
-        s.add(new Step("wineserver -k (stop Wine)", Arrays.asList(box64, wineserver, "-k"),
-                env, rt.root, 60_000, null, null, Check.NONE, false));
+        s.add(stopStep(rt, prefixDir, tmpDir));
         return s;
+    }
+
+    /**
+     * Creating the prefix, as in the device-verified Wine tests (and shared with the display test): wineboot --init
+     * (exit 0 required), then wineserver -w (exit 0 required) and the prefix check (system.reg and drive_c/windows).
+     * Working directory: the runtime directory. Wine creates only the prefix directory itself (one mkdir), so the
+     * caller must create its parent first ({@link WinePrefixSetup#ensureParent}).
+     */
+    public static List<Step> prefixInitSteps(RuntimeLayout rt, File prefixDir, File tmpDir) {
+        Map<String, String> env = wineEnv(rt, prefixDir, tmpDir);
+        Map<String, String> initEnv = new LinkedHashMap<>(env);
+        initEnv.put("BOX64_LOG", "1");   // which libraries each Box64 process loads, process renames
+        List<Step> s = new ArrayList<>();
+        Step init = new Step("wineboot --init (create Wine prefix; wine starts wineserver itself)",
+                watched(rt, Arrays.asList(rt.box64().getPath(), rt.wine().getPath(), "wineboot", "--init")),
+                initEnv, rt.root, 20 * 60_000, 0, null, Check.NONE, true);
+        init.prefixInit = true;
+        s.add(init);
+        // wineboot returns while wineserver is still running; the registry (system.reg) is only written
+        // when wineserver flushes it on exit, so wait for the server before checking the prefix.
+        s.add(new Step("wineserver -w (wait for Wine to save the prefix)",
+                Arrays.asList(rt.box64().getPath(), new File(rt.wineBinDir(), "wineserver").getPath(), "-w"),
+                env, rt.root, 5 * 60_000, 0, null, Check.PREFIX_CREATED, true));
+        return s;
+    }
+
+    public static Step stopStep(RuntimeLayout rt, File prefixDir, File tmpDir) {
+        return new Step("wineserver -k (stop Wine)",
+                Arrays.asList(rt.box64().getPath(), new File(rt.wineBinDir(), "wineserver").getPath(), "-k"),
+                wineEnv(rt, prefixDir, tmpDir), rt.root, 60_000, null, null, Check.NONE, false);
     }
 
     /**

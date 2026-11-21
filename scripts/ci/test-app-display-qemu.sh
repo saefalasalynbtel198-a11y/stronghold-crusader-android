@@ -9,7 +9,9 @@
 #   1. the app's XvfbStarter starts the runtime's Xvfb with the app's argv (loader, no shell, -displayfd 1), as the
 #      app user, hard links denied, /tmp /var /usr/lib/xorg /usr/share/X11 empty and read-only; display :37
 #   2. occupied displays: Xvfb refuses the busy :37 -> :38; busy displays skipped -> :39, :40; all busy -> error
-#   3. xdpyinfo; wineboot (no display); shc-display-test.exe with the app's Wine environment and DISPLAY
+#   P. the display test's Wine prefix stage with the app's code, before Xvfb: the device failure of 0.3.4 reproduced
+#      (fresh app data, no parent directory), then fresh prefix created, then an initialised prefix kept
+#   3. xdpyinfo; shc-display-test.exe with the app's Wine environment and DISPLAY, in that prefix
 #   4. framebuffer read with the app's XWD parser through a read-only mapping: 4 quadrants, counter, motion
 #   5. start/stop cycles with the app's code: stdout closed after the number, process ended, socket gone
 #   6. no link syscall in any Xvfb started by the app's code; every syscall checked against Android's arm64 allowlist
@@ -21,7 +23,7 @@ W="$(mkdir -p "${3:?work dir}" && realpath "$3")"
 repo="$(cd "$(dirname "$0")/../.." && pwd)"
 core="$repo/app/src/main/java/io/github/saefalasalynbtel198/shcport/core"
 rt="$W/runtime"; st="$W/strace"; logs="$W/xvfb-logs"
-rm -rf "$rt" "$st" "$logs" "$W"/fb-* "$W/prefix" "$W/classes"; mkdir -p "$st" "$logs" "$W/home" "$W/tmp" "$W/classes"
+rm -rf "$rt" "$st" "$logs" "$W"/fb-* "$W/appdata" "$W/classes"; mkdir -p "$st" "$logs" "$W/home" "$W/tmp" "$W/classes"
 chmod 0777 "$logs"
 result() { echo "RESULT $1: $2" | tee -a "$W/results.txt"; }
 : > "$W/results.txt"
@@ -52,7 +54,7 @@ rm -f "$XCWD/.X37-lock" "$XCWD/.tX37-lock"
 echo "== 0b. the 0.3.3 wrapper under mksh (Android's /system/bin/sh): must reproduce the second device error"
 WRAP='exec 3>&1 1>/dev/null; exec "$@"'
 for sh in dash mksh; do
-  printf '%s: ' "$sh"; $sh -c "$WRAP" x sh -c '[ -e /proc/self/fd/3 ] && echo "fd 3 open after exec" || echo "fd 3 CLOSED after exec"'
+  printf '%s: ' "$sh"; $sh -c "$WRAP" x sh -c '[ -e /proc/self/fd/3 ] && echo "fd 3 open after exec" >&2 || echo "fd 3 CLOSED after exec" >&2'
 done
 mksh -c "$WRAP" x sh -c '[ -e /proc/self/fd/3 ]' && fd3=open || fd3=closed
 timeout 60 mksh -c "$WRAP" xvfb Xvfb :61 -nolisten tcp -displayfd 3 > "$W/repro-fd3.out" 2> "$W/repro-fd3.log"; rc=$?
@@ -61,6 +63,31 @@ if [ $fd3 = closed ] && grep -q "Cannot write display number to fd 3" "$W/repro-
   result repro-fd3 "PASS (mksh closes fd 3 on exec; Xvfb behind the 0.3.3 wrapper exits $rc with: Cannot write display number to fd 3)"
 else result repro-fd3 "FAIL (fd 3 $fd3 after mksh exec; Xvfb exit $rc)"; tail -10 "$W/repro-fd3.log"; fi
 pkill -f "Xvfb :61" 2> /dev/null
+
+echo "== P. Wine prefix stage of the display test (before Xvfb), app data layout files/prefix/wine"
+files="$W/appdata/files"; prefix="$files/prefix/wine"
+rm -rf "$W/appdata"; mkdir -p "$files"          # a fresh install: getFilesDir() exists, nothing below it
+cli prefix-init "$rt" "$prefix" "$files/tmp" --no-parent > "$W/prefix-repro.txt"; rc=$?
+grep -vE '^  \| (wine: created|0[0-9a-f]+:)' "$W/prefix-repro.txt" | head -20
+if [ $rc -ne 0 ] && grep -q "chdir to $prefix : No such file or directory" "$W/prefix-repro.txt" \
+   && grep -q 'wineboot --init.*exit 1 ' "$W/prefix-repro.txt"; then
+  result repro-prefix "PASS (without the parent directory, as 0.3.4: wineboot exit 1, wine: chdir to .../prefix/wine : No such file or directory)"
+else result repro-prefix "FAIL (device error not reproduced, exit $rc)"; fi
+rm -rf "$W/appdata"; mkdir -p "$files"
+t0=$(date +%s)
+cli prefix-init "$rt" "$prefix" "$files/tmp" > "$W/prefix-fresh.txt"; rc=$?
+grep -E '^(prefix|parent|step|result|\$)' "$W/prefix-fresh.txt"
+if [ $rc -eq 0 ] && grep -q "^result CREATED" "$W/prefix-fresh.txt" && grep -q "created now (mkdirs)" "$W/prefix-fresh.txt" \
+   && [ -f "$prefix/system.reg" ] && [ -d "$prefix/drive_c/windows" ]; then
+  result prefix-fresh "PASS (fresh app data: files/prefix created, wineboot exit 0, wineserver -w exit 0, system.reg + drive_c/windows, $(( $(date +%s) - t0 )) s)"
+else result prefix-fresh "FAIL (exit $rc)"; tail -40 "$W/prefix-fresh.txt"; fi
+cli prefix-init "$rt" "$prefix" "$files/tmp" > "$W/prefix-again.txt"; rc=$?
+cat "$W/prefix-again.txt"
+if [ $rc -eq 0 ] && grep -q "^result KEPT" "$W/prefix-again.txt"; then
+  result prefix-existing "PASS (initialised prefix kept, wineboot not run again)"
+else result prefix-existing "FAIL (exit $rc)"; fi
+pgrep -u "$(id -u)" -f "wine/bin/wine" > /dev/null && result prefix-stopped "FAIL (Wine processes left after the prefix stage)" \
+  || result prefix-stopped "PASS (no Wine process left before Xvfb starts)"
 
 echo "== 1. the app's XvfbStarter: argv without shell, -displayfd 1, Android-like environment"
 QEMU_STRACE=1 QEMU_LOG_FILENAME="$st/xvfb-main.%d" cli start "$rt" "$W/fb-main" "$logs" 37 40 -- "${ANDROID_LIKE[@]}" | tee "$W/start-main.txt"
@@ -90,13 +117,11 @@ timeout 300 "${XD[@]}" > "$W/xdpyinfo.log" 2>&1 && result xdpyinfo "PASS ($(grep
   || { result xdpyinfo FAIL; cat "$W/xdpyinfo.log"; }
 
 echo "== 3. Wine with the app's environment"
-mapfile -t ENVL < <(cli wine-env "$rt" "$W/prefix" "$W/tmp" $D)
+mapfile -t ENVL < <(cli wine-env "$rt" "$prefix" "$files/tmp" $D)
 for kv in "${ENVL[@]}"; do export "$kv"; done
 export HOME="$W/home"
 echo "DISPLAY=$DISPLAY WINEPREFIX=$WINEPREFIX"
 box64="$rt/bin/box64"; wineserver="$rt/wine/bin/wineserver"
-DISPLAY= timeout 1800 "$box64" "$rt/wine/bin/wine" wineboot --init > "$W/wineboot.log" 2>&1; echo "wineboot exit $?"
-timeout 300 "$box64" "$wineserver" -w || { echo "stopping leftover Wine processes"; timeout 120 "$box64" "$wineserver" -k; sleep 5; }
 mapfile -t WA < <(cli wine-argv "$rt" "$EXE")
 (cd "$WINEPREFIX/drive_c" && QEMU_STRACE=1 QEMU_LOG_FILENAME="$st/wine.%d" exec timeout 2400 "${WA[@]}" 600 > "$W/display-test.log" 2>&1) &
 wpid=$!
