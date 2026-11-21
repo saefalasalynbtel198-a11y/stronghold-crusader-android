@@ -1,6 +1,6 @@
 # BUILD 3 phase 3 — display, game window, touch input: implementation plan
 
-Status: **proposal, awaiting owner approval.** Nothing below is implemented yet. Start Game stays disabled until
+Status: **approved 2026-11-21** (option A, 1024×768). Step 3.0 done in CI (section 7); nothing else implemented yet. Start Game stays disabled until
 the game's own window is shown on the Android 16 phone and responds to touch, verified on the device.
 
 Starting point (verified on the device, 2026-11-21): app 0.3.1-dev.1 + runtime r5 run Box64 → Wine 11.0 → Windows
@@ -74,3 +74,21 @@ changes from opengl to gdi only if 3.0/3.4 show gdi is the one that works), `Win
 
 1. Approve option A (Xvfb + app renderer) and the step order above, or ask for option B (Termux:X11, GPL-3.0).
 2. Confirm the first target resolution (1024×768, letterboxed on the phone) — wider HD resolutions can follow.
+
+## 7. Step 3.0 result (CI only) and decisions for runtime r6
+
+All six checks passed in [run 44905986966](https://github.com/saefalasalynbtel198-a11y/stronghold-crusader-android/actions/runs/44905986966)
+(details: docs/evidence/build3-display-feasibility.md). Emulated ARM64 Linux, not Android.
+
+Needed for Android, found by the test, to be built into r6:
+
+1. **setuid/setgid to the caller's own ids** (Xvfb's helper start) and **shmget** (Wine's X11 driver, every window)
+   are trapped by Android's filter. The test used a preload library. For r6, either
+   (a) the same two behaviours as hunks in the existing glibc Android patch (one place for all Android syscall
+   fixes, applies to every program; verified the same way as `accept`), or
+   (b) ship the preload library and load it into Xvfb and Wine.
+   Recommendation: (a).
+2. **Xvfb paths**: three string literals patched in a copy of Debian's Xvfb (fails safely if the layout changes),
+   XKB data directory writable inside the runtime, `/bin/sh` used to start xkbcomp.
+3. **Start order**: Xvfb must run before Wine starts its desktop process; leftover Wine processes started without a
+   display must be stopped first.
