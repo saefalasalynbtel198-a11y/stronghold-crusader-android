@@ -47,6 +47,22 @@ sleep 3
 pid2=$(app_pid) || fail "app process died across background/foreground"
 
 adb shell screencap -p /sdcard/smoke.png && adb pull /sdcard/smoke.png "$OUT/screenshot.png" > /dev/null || true
+
+# Display test screen (BUILD 3 step 3.2): opens (debug-only extra), GL surface comes up, survives pause/resume
+# (screen off/on keeps the same activity instance) without a runtime installed.
+adb shell am start -W -n "$PKG/.app.MainActivity" --es shc.open display-test > "$OUT/am-start-display.txt"
+sleep 5
+adb shell dumpsys activity activities | grep -E "mResumedActivity|topResumedActivity|ResumedActivity" | tee "$OUT/display-resumed-1.txt"
+grep -q "DisplayTestActivity" "$OUT/display-resumed-1.txt" || fail "display test screen did not open"
+adb shell input keyevent KEYCODE_SLEEP
+sleep 3
+adb shell input keyevent KEYCODE_WAKEUP
+adb shell wm dismiss-keyguard || true
+sleep 4
+adb shell dumpsys activity activities | grep -E "mResumedActivity|topResumedActivity|ResumedActivity" | tee "$OUT/display-resumed-2.txt"
+grep -q "DisplayTestActivity" "$OUT/display-resumed-2.txt" || fail "display test screen not resumed after screen off/on"
+app_pid > /dev/null || fail "app process died on the display test screen"
+adb shell screencap -p /sdcard/display.png && adb pull /sdcard/display.png "$OUT/display-screen.png" > /dev/null || true
 adb logcat -d > "$OUT/logcat.txt"
 if grep -E "FATAL EXCEPTION|ANR in $PKG" "$OUT/logcat.txt"; then
   fail "crash or ANR detected"

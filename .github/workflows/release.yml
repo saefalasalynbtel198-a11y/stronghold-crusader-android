@@ -61,6 +61,14 @@ jobs:
             exit 1
           fi
 
+      - name: Build Windows display test program (mingw-w64, shipped as an APK asset)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends gcc-mingw-w64-i686
+          mkdir -p app/build/generated/shc-assets
+          i686-w64-mingw32-gcc -O2 -Wall -Werror -static -o app/build/generated/shc-assets/shc-display-test.exe \
+            app/winsrc/shc-display-test.c -lgdi32
+
       - name: Unit tests
         run: gradle --no-daemon --stacktrace :app:testDebugUnitTest
 

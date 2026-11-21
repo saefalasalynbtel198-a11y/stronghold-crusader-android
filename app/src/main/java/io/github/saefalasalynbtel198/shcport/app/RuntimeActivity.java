@@ -46,6 +46,7 @@ public final class RuntimeActivity extends Activity {
     private Button install;
     private Button selfTest;
     private Button wineTest;
+    private Button displayTest;
     private volatile boolean busy;
 
     @Override
@@ -65,6 +66,9 @@ public final class RuntimeActivity extends Activity {
         col.addView(Ui.row(this, install, selfTest, wineTest,
                 Ui.button(this, "Copy report", v -> copyReport()),
                 Ui.button(this, "Remove runtime", v -> removeRuntime())));
+        displayTest = Ui.button(this, "Display test (BUILD 3 step 3.2)…",
+                v -> startActivity(new Intent(this, DisplayTestActivity.class)));
+        col.addView(displayTest);
         report = Ui.body(this, "");
         col.addView(report);
         setContentView(Ui.scroll(this, col));
@@ -78,6 +82,7 @@ public final class RuntimeActivity extends Activity {
         install.setEnabled(!busy);
         selfTest.setEnabled(!busy && rt.looksInstalled());
         wineTest.setEnabled(!busy && rt.looksInstalled() && rt.peSmoke32().isFile());
+        displayTest.setEnabled(!busy);   // the screen itself explains a missing r6 runtime
     }
 
     private void pick() {
