@@ -10,11 +10,12 @@ Last updated: 2026-11-20 (BUILD 2 device report 2: glibc patched for Android sec
 | 2 | BUILD 1 — launcher, core, CI | COMPLETED (merge pending) | PR #1; run [44613894366](https://github.com/saefalasalynbtel198-a11y/stronghold-crusader-android/actions/runs/44613894366) green: 33 unit tests, lint, APK verified, emulator smoke test passed. Merge into `main` needs the owner (agent merge was refused by its permission policy). |
 | 3 | BUILD 2 — runtime package, installer, on-device self-test | FAILED on device twice → fix IN PROGRESS | Report 1: Box64 SIGSYS. Report 2 (0.2.1): rseq tunable insufficient; probe shows set_robust_list, faccessat2 and others blocked. Fix: Android-patched glibc (0.2.2-dev.1 / runtime r3), awaiting CI and device re-test. |
 | 3d | BUILD 2 device acceptance | COMPLETED (owner-reported) | Owner, 2026-11-20, Xiaomi 25053PC47G Android 16: patched glibc, threads/robust mutex/fork, Box64 v0.3.8, `wine --version` PASS with runtime r3 / app 0.2.2-dev.1. |
-| 5a | BUILD 3 phase 1–2: Wine prefix + Windows PE smoke test | FAILED on device → fix IN PROGRESS | Device (0.3.0-dev.1, r4): `wineboot --init` failed after 306 ms, `wine client error:0: recvmsg: Connection reset by peer`. Root cause found in emulation (milestone 5b): Android's seccomp filter has no `accept`; wineserver dies at its first `accept()`. Fix in 0.3.1-dev.1 / runtime r5 (branch `fix/build3-wineserver`, PR #4). Not COMPLETED until the device report passes. |
-| 5b | CI for the fix (APK 0.3.1-dev.1, runtime r5) | BLOCKED | Every GitHub Actions job since 2026-11-20 21:04 UTC: "The job was not started because recent account payments have failed or your spending limit needs to be increased". Owner action: GitHub → Settings → Billing and plans. |
+| 5a | BUILD 3 phase 1–2: Wine prefix + Windows PE smoke test | COMPLETED | Owner's device report 2026-11-21 (Xiaomi 25053PC47G, Android 16, app 0.3.1-dev.1, runtime r5): runtime self-test 4/4 required steps PASS, Wine tests 6/6 required steps PASS (prefix init, wineserver -w, wineserver dir, PE smoke 64-bit and 32-bit). Fix: glibc `accept` → `accept4` (milestone 5b section). |
+| 5b | CI for the fix (APK 0.3.1-dev.1, runtime r5) | COMPLETED | Repository made public, Actions unblocked. [Android build 44823423581](https://github.com/saefalasalynbtel198-a11y/stronghold-crusader-android/actions/runs/44823423581) (APK SHA-256 `be714a5d…daf19`), [Runtime components 44823423675](https://github.com/saefalasalynbtel198-a11y/stronghold-crusader-android/actions/runs/44823423675) 7/7 jobs (qemu Box64+Wine: no syscall outside Android's allowlist). |
+| 5c | BUILD 3 phase 3: display, game window, touch input | NOT STARTED | Plan: docs/BUILD3_PHASE3_PLAN.md — awaiting owner approval. Start Game stays disabled. |
 | 4 | Complete Android application (AR/EN, themes, game launch screen) | NOT STARTED | |
-| 5 | Runtime integration: display server, Wine prefix, cnc-ddraw, audio | NOT STARTED | Needs BUILD 2 device result |
-| 6 | Touch controls injected into the game | NOT STARTED | Mapper done and unit-tested; injection needs milestone 5 |
+| 5 | Runtime integration: display server, Wine prefix, cnc-ddraw, audio | IN PROGRESS | Wine prefix: COMPLETED (5a). Display + cnc-ddraw: 5c. Audio: phase 4. |
+| 6 | Touch controls injected into the game | NOT STARTED | Mapper done and unit-tested; injection = plan step 3.3 (XTEST) |
 | 7–9 | APK build / automated tests / emulator tests | COMPLETED for BUILD 1 | see milestone 2 |
 | 10 | Actual game execution | BLOCKED | No legal HD 1.41 copy available; runtime display path not built |
 | 11–13 | Fixes, release, delivery | NOT STARTED | Release workflow present, not yet run |
@@ -170,8 +171,5 @@ Last updated: 2026-11-20 (BUILD 2 device report 2: glibc patched for Android sec
 
 ## Next action
 
-1. Owner: fix GitHub Actions billing (Settings → Billing and plans), then tell the agent; the PR #4 builds run again.
-2. Owner, with app 0.3.1-dev.1 and runtime r5 from those builds: *Remove runtime*, *Install runtime package…*
-   (r5), *Run self-test* (expect `accept (bad fd)` BLOCKED, `accept4` allowed, glibctest `accept: ok`), then
-   *Run Wine tests (BUILD 3)*; send both reports.
-3. Agent, after a passing device report: phase 3 (display path). Start Game stays disabled until then.
+1. Owner: review docs/BUILD3_PHASE3_PLAN.md and approve (or choose the alternative display server).
+2. Agent: step 3.0 of the plan (CI-only feasibility test of the display path), then report before app changes.
