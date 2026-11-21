@@ -3,8 +3,8 @@ plugins {
 }
 
 // Version is defined once here; CI and release workflows read it via `gradle -q printVersion`.
-def appVersionName = '0.3.6-dev.1'
-def appVersionCode = 11
+def appVersionName = '0.3.6-dev.2'
+def appVersionCode = 12
 
 android {
     // Windows test programs built by CI with mingw-w64 (app/winsrc, see .github/workflows/android-build.yml);
@@ -43,14 +43,37 @@ android {
                 keyPassword System.getenv('SHC_KEY_PASSWORD')
             }
         }
+        // Permanent development key (since 0.3.6-dev.2): one keystore kept by the owner, given to CI only through
+        // the GitHub Actions secrets SHC_DEV_* (scripts/ci/dev-signing.sh decodes it into the runner's temporary
+        // directory and checks its certificate against signing/dev-certificate-sha256.txt). Never in the repository.
+        dev {
+            def ks = System.getenv('SHC_DEV_KEYSTORE_FILE')
+            if (ks) {
+                storeFile file(ks)
+                storePassword System.getenv('SHC_DEV_KEYSTORE_PASSWORD')
+                keyAlias System.getenv('SHC_DEV_KEY_ALIAS')
+                keyPassword System.getenv('SHC_DEV_KEY_PASSWORD')
+            }
+        }
     }
 
     buildTypes {
         debug {
+            // Side-by-side development app: its own package, app storage and runtime/prefix/game copy, so it
+            // installs next to the 0.3.5-dev.1 app (io.github.saefalasalynbtel198.shcport) without touching it.
+            applicationIdSuffix '.dev'
             versionNameSuffix '-debug'
+            resValue 'string', 'app_label', 'SHC Port DEV'
+            if (System.getenv('SHC_DEV_KEYSTORE_FILE')) {
+                signingConfig signingConfigs.dev
+            } else if (project.findProperty('shcRequireDevKey') == 'true') {
+                // CI passes -PshcRequireDevKey=true: never fall back to the auto-generated debug key.
+                throw new GradleException('Development signing key required (-PshcRequireDevKey=true) but SHC_DEV_KEYSTORE_FILE is not set. See docs/DEV_SIGNING.md.')
+            }
         }
         release {
             minifyEnabled false
+            resValue 'string', 'app_label', 'SHC Port'
             if (System.getenv('SHC_KEYSTORE_FILE')) {
                 signingConfig signingConfigs.release
             }

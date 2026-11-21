@@ -71,8 +71,9 @@
   — CI-reproduced and CI-tested, not yet device-tested.
 * CI debug APKs are signed with a new debug key on every CI run (confirmed: 0.3.5-dev.1 `fcd0e71c…`, 0.3.6-dev.1
   `6cc72f99…`). Android refuses such an update; uninstalling removes the runtime, the Wine prefix and the imported
-  game copy (app storage). This is the likely reason `files/prefix` was missing before the 0.3.4 run. A stable key
-  needs a development keystore in GitHub Actions secrets (owner decision; never in the repository).
+  game copy (app storage). This is the likely reason `files/prefix` was missing before the 0.3.4 run. Since
+  0.3.6-dev.2: separate development app (`...shcport.dev`) and a permanent development key from GitHub Actions
+  secrets (docs/DEV_SIGNING.md). Until the owner adds the secrets and the fingerprint is pinned, CI builds no APK.
 
 * 0.3.3-dev.1 passes the hard-link check on the device but Xvfb fails with "Cannot write display number to fd 3"
   (Android's mksh closes fd 3 on exec); fixed in 0.3.4-dev.1 (`-displayfd 1`, no shell) — CI-reproduced and

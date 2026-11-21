@@ -80,13 +80,37 @@ jobs:
           set -o pipefail
           gradle --no-daemon --stacktrace :app:lintDebug 2>&1 | tee build-logs/lint.log
 
-      - name: Assemble debug APK
+      # Permanent development key (docs/DEV_SIGNING.md): from GitHub Actions secrets only, decoded into the runner's
+      # temporary directory, certificate checked against signing/dev-certificate-sha256.txt. No fallback key: without
+      # the secrets (or from a fork) this job fails here, after the unit tests and lint.
+      - name: Development signing key (GitHub Actions secrets)
+        env:
+          SHC_DEV_KEYSTORE_BASE64: ${{ secrets.SHC_DEV_KEYSTORE_BASE64 }}
+          SHC_DEV_KEYSTORE_PASSWORD: ${{ secrets.SHC_DEV_KEYSTORE_PASSWORD }}
+          SHC_DEV_KEY_ALIAS: ${{ secrets.SHC_DEV_KEY_ALIAS }}
+          SHC_DEV_KEY_PASSWORD: ${{ secrets.SHC_DEV_KEY_PASSWORD }}
+        run: bash scripts/ci/dev-signing.sh setup
+
+      - name: Assemble debug APK (side-by-side app ...shcport.dev, signed with the development key)
+        env:
+          SHC_DEV_KEYSTORE_PASSWORD: ${{ secrets.SHC_DEV_KEYSTORE_PASSWORD }}
+          SHC_DEV_KEY_ALIAS: ${{ secrets.SHC_DEV_KEY_ALIAS }}
+          SHC_DEV_KEY_PASSWORD: ${{ secrets.SHC_DEV_KEY_PASSWORD }}
         run: |
           set -o pipefail
-          gradle --no-daemon --stacktrace :app:assembleDebug 2>&1 | tee build-logs/assemble.log
+          gradle --no-daemon --stacktrace :app:assembleDebug -PshcRequireDevKey=true 2>&1 | tee build-logs/assemble.log
+
+      - name: Remove the development keystore from the runner
+        if: always()
+        run: bash scripts/ci/dev-signing.sh cleanup
 
       - name: Verify APK
+        env:
+          EXPECTED_PACKAGE: io.github.saefalasalynbtel198.shcport.dev
         run: bash scripts/ci/verify-apk.sh app/build/outputs/apk/debug/app-debug.apk "${{ steps.version.outputs.name }}"
+
+      - name: Verify the APK is signed with the pinned development certificate
+        run: bash scripts/ci/dev-signing.sh verify app/build/outputs/apk/debug/app-debug.apk
 
       - name: Check the display test program is in the APK
         run: |
@@ -119,6 +143,9 @@ jobs:
     needs: build
     runs-on: ubuntu-24.04
     timeout-minutes: 40
+    permissions:
+      contents: read
+      actions: read      # download the 0.3.5-dev.1 APK artifact of an earlier run (side-by-side check)
     steps:
       - name: Check out
         uses: actions/checkout@v4
@@ -128,6 +155,16 @@ jobs:
         with:
           name: Stronghold-Crusader-Android-APK
           path: apk
+
+      # Side-by-side check: the owner's installed 0.3.5-dev.1 APK (package ...shcport, CI debug key fcd0e71c...)
+      # from its CI run, installed first on the emulator; the new app must install next to it and leave it alone.
+      - name: Download the 0.3.5-dev.1 APK (run 44928832593) for the side-by-side check
+        uses: actions/download-artifact@v4
+        with:
+          name: Stronghold-Crusader-Android-APK
+          path: old-apk
+          run-id: 44928832593
+          github-token: ${{ github.token }}
 
       - name: Enable KVM
         run: |
@@ -144,7 +181,7 @@ jobs:
           force-avd-creation: false
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           disable-animations: true
-          script: bash scripts/ci/smoke-test.sh apk/app-debug.apk smoke-test-output
+          script: bash scripts/ci/smoke-test.sh apk/app-debug.apk smoke-test-output old-apk/app-debug.apk
 
       - name: Upload smoke-test output
         if: always()

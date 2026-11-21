@@ -1,0 +1,4 @@
+# SHA-256 of the permanent development signing certificate (public information, not a secret).
+# CI refuses to build a development APK with any other key (scripts/ci/dev-signing.sh, docs/DEV_SIGNING.md).
+# The owner generates the key on their own computer and reports this fingerprint; it is pinned here afterwards.
+UNSET
