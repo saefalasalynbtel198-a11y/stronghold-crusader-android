@@ -1,5 +1,14 @@
 # Release notes
 
+## Runtime r6 — BUILD 3 phase 3 step 3.1 (CI-tested, not yet device-tested)
+
+* glibc Android patch: `setuid`/`setgid` to the process's current IDs succeed without the (trapped) syscall;
+  `shmget` fails with ENOSYS instead of being trapped. All earlier fixes (including `accept` → `accept4`) unchanged.
+* New in the package: `x11/` (Xvfb with three path strings patched, xkbcomp and its wrapper, xkb data, xdpyinfo)
+  and `win/shc-gui-smoke.exe`. Mesa/LLVM are not included (GLX is not used).
+* Works with app 0.3.1-dev.1 (self-test, Wine tests). The display itself needs the next app build (step 3.2).
+* Runtime r5 stays the known-good fallback.
+
 ## 0.3.1-dev.1 + runtime r5 — BUILD 3 fix (development build, not a playable game)
 
 * Fix: wineserver was killed by Android's seccomp filter at its first `accept()` (Android allows only

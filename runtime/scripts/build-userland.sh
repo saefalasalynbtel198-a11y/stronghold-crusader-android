@@ -19,6 +19,8 @@ packages=(
   libxcb1 libxau6 libxdmcp6 libbsd0 libmd0
   libfreetype6 libpng16-16t64 libbrotli1 libfontconfig1 libexpat1 libuuid1
   libasound2t64
+  # Runtime r6 (BUILD 3 phase 3): virtual X server, keymap compiler and data, xdpyinfo for diagnostics
+  xvfb x11-xkb-utils xkb-data x11-utils
 )
 include=$(IFS=,; echo "${packages[*]}")
 
@@ -60,11 +62,23 @@ for dirpath, dirnames, filenames in os.walk(root):
                 break
 PY
 
+# Xvfb depends on libgl1, which pulls in Mesa (LLVM, Gallium drivers, ~hundreds of MB). The runtime starts Xvfb
+# with GLX disabled and has no Mesa use yet, so the Mesa driver files are removed; libGL/libGLX/libGLdispatch
+# (GLVND, which load a vendor library only when GLX is used) stay because Xvfb links against libGL.so.1.
+find "$merged" -type f -printf '%s %f\n' | sort -rn > "$here/out/userland-sizes.txt"
+echo "largest userland files before removing Mesa:"; sed -n '1,12p' "$here/out/userland-sizes.txt"
+removed=0
+for pat in 'libLLVM*' 'libgallium*' 'libGLX_mesa*' 'libEGL_mesa*' 'libgbm*' 'libvulkan_*' 'libxatracker*' 'libz3*'; do
+  for f in "$merged"/$pat; do [ -e "$f" ] || [ -L "$f" ] || continue; rm -f "$f"; removed=$((removed+1)); done
+done
+rm -rf "$merged/dri" "$merged/gbm" "$merged/vdpau"
+echo "removed $removed Mesa/LLVM files; userland now $(du -sh "$merged" | cut -f1)"
+
 ld="$merged/ld-linux-aarch64.so.1"
 [ -e "$ld" ] || { echo "::error::glibc loader not found in lib/ or usr/lib/aarch64-linux-gnu"; ls "$out" "$out/lib" 2>/dev/null; exit 1; }
 file -L "$ld" | tee "$here/out/ld.file.txt"
 grep -q "ARM aarch64" "$here/out/ld.file.txt"
-for so in libc.so.6 libX11.so.6 libasound.so.2 libfreetype.so.6; do
+for so in libc.so.6 libX11.so.6 libasound.so.2 libfreetype.so.6 libXfont2.so.2 libpixman-1.so.0 libGL.so.1 libxkbfile.so.1; do
   [ -e "$merged/$so" ] || { echo "::error::$so missing from userland"; exit 1; }
 done
 echo "userland: $(find "$merged" -maxdepth 1 | wc -l) entries, $(du -sh "$merged" | cut -f1)"

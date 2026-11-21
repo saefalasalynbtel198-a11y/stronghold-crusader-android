@@ -1,73 +1,52 @@
 #!/usr/bin/env bash
-# BUILD 3 phase 3, step 3.0: display feasibility test (CI only; changes neither the app nor the runtime).
+# Display test of the runtime package (r6+): BUILD 3 phase 3. Everything comes from the package itself: Xvfb,
+# xkbcomp, xkb data, xdpyinfo, Box64, Wine, cnc-ddraw, shc-gui-smoke.exe, the Android-patched glibc.
+# No preload library of any kind: the test refuses to run with LD_PRELOAD set and checks the logs for it.
 #
-# Uses the unchanged runtime r5 package plus, in a separate directory, Debian trixie arm64 Xvfb + xkbcomp +
-# xkb-data. Everything aarch64 runs under qemu-aarch64 with r5's Android-patched glibc loader, exactly as the
-# app starts programs (loader --library-path …; Box64 executed directly with the PT_INTERP set by the app's code).
+#   1. Xvfb :0 1024x768x24 from <runtime>/x11 (cwd), abstract socket only, no MIT-SHM, no GLX, built-in fonts,
+#      framebuffer in a file (-fbdir); in a private mount namespace where /tmp, /var, /usr/lib/xorg and
+#      /usr/share/X11 are empty and read-only (Android has none of them)
+#   2. native X client (xdpyinfo); wineboot --init (no display); then shc-gui-smoke.exe gdi -> 4 colour blocks
+#   3. shc-gui-smoke.exe ddraw with the package's cnc-ddraw ddraw.dll (renderer=gdi) -> 4 colour blocks
+#   4. every syscall of every process checked against Android's arm64 app allowlist; Wine's X11 driver must not
+#      have reached the kernel's shmget (glibc returns ENOSYS; Wine falls back to ordinary images)
+#   5. files Xvfb and xkbcomp used outside the runtime and test directories
+# Linux emulation (qemu-aarch64 user mode), NOT Android: no seccomp enforcement, no SELinux, different kernel.
 #
-#   1. Xvfb :0 1024x768x24, abstract socket only (no /tmp), no MIT-SHM (shmget is blocked on Android), no GLX,
-#      built-in fonts, framebuffer in a file (-fbdir); its XKB and lock-file paths patched to its own directory;
-#      run in a private mount namespace where /tmp, /var, /usr/lib/xorg and /usr/share/X11 are empty and
-#      read-only (Android has none of them), with libshc-android-shim.so preloaded (see its header: setuid/
-#      setgid to the caller's own ids become no-ops; shmget fails with ENOSYS)
-#   2. wineboot --init (no display), then shc-gui-smoke.exe gdi   -> check 4 colour blocks in the framebuffer
-#      (Wine GUI processes also get the preload: Wine's X11 driver calls shmget for every window surface)
-#   3. shc-gui-smoke.exe ddraw with r5's cnc-ddraw ddraw.dll + ddraw.ini (renderer=gdi) -> check 4 colour blocks
-#   4. every syscall of every process (Xvfb, xkbcomp, Box64/Wine) checked against Android's arm64 app allowlist
-#   5. every file path Xvfb/xkbcomp opened or executed outside the test directories listed (Android has no
-#      /usr, /var, /tmp)
-# Linux emulation, NOT Android: no seccomp enforcement, no SELinux, different kernel. The device test follows.
-#
-# Usage: run-feasibility.sh <shc-runtime-r5-*.zip> <shc-gui-smoke.exe> <libshc-android-shim.so> <work dir>
+# Usage: test-display-qemu.sh <shc-runtime-*.zip> <work dir>
 set -uo pipefail
 ZIP="$(realpath "${1:?runtime zip}")"
-EXE="$(realpath "${2:?shc-gui-smoke.exe}")"
-SHIM="$(realpath "${3:?libshc-android-shim.so}")"
-W="$(mkdir -p "${4:?work dir}" && realpath "$4")"
-repo="$(cd "$(dirname "$0")/../../.." && pwd)"
-spike="$repo/runtime/spike/display"
+W="$(mkdir -p "${2:?work dir}" && realpath "$2")"
+repo="$(cd "$(dirname "$0")/../.." && pwd)"
+tools="$repo/runtime/display"
 core="$repo/app/src/main/java/io/github/saefalasalynbtel198/shcport/core"
 # shellcheck source=/dev/null
 . "$repo/runtime/versions.env"
-rt="$W/runtime"; xroot="$W/xroot"; xlib="$W/xlib"; x11="$W/x11"; st="$W/strace"
-rm -rf "$rt" "$x11" "$st" "$W/fb" "$W/prefix" "$W/gdi" "$W/dd"
-mkdir -p "$x11" "$st" "$W/fb" "$W/gdi" "$W/dd" "$W/home" "$W/tmp" "$W/classes"
+rt="$W/runtime"; st="$W/strace"
+rm -rf "$rt" "$st" "$W/fb" "$W/prefix" "$W/gdi" "$W/dd" "$W/classes"
+mkdir -p "$st" "$W/fb" "$W/gdi" "$W/dd" "$W/home" "$W/tmp" "$W/classes"
 result() { echo "RESULT $1: $2" | tee -a "$W/results.txt"; }
 : > "$W/results.txt"
 
-echo "== runtime r5 (unchanged package), extracted and PT_INTERP set with the app's own code"
+echo "== no preload library anywhere"
+if [ -n "${LD_PRELOAD:-}" ]; then echo "::error::LD_PRELOAD is set ($LD_PRELOAD)"; exit 1; fi
+# (wine's own wine-preloader is not a preload library and is allowed)
+if unzip -l "$ZIP" | grep -iE "shc-android-shim|libshc-sameid"; then echo "::error::package contains the test stand-in library"; exit 1; fi
+echo "LD_PRELOAD unset; package has no preload library"
+
+echo "== runtime package, extracted and PT_INTERP set with the app's own code"
 javac -d "$W/classes" -sourcepath "$repo/app/src/main/java" "$core/RuntimeArchive.java" "$core/ElfInterp.java" \
   "$core/RuntimeLayout.java" "$repo/scripts/ci/ExtractRuntime.java" || exit 1
 java -cp "$W/classes" ExtractRuntime "$ZIP" "$rt" patch-interp || exit 1
+cat "$rt/RUNTIME_VERSION"
 loader="$rt/lib/aarch64-linux-gnu/ld-linux-aarch64.so.1"
-
-echo "== Debian $DEBIAN_SUITE arm64: xvfb, x11-xkb-utils (xkbcomp), xkb-data (extract only)"
-if [ ! -x "$xroot/usr/bin/Xvfb" ]; then
-  sudo rm -rf "$xroot"
-  sudo mmdebstrap --mode=root --variant=extract --architectures=arm64 \
-    --keyring=/usr/share/keyrings/debian-archive-keyring.gpg --include=xvfb,x11-xkb-utils,xkb-data,x11-utils \
-    "$DEBIAN_SUITE" "$xroot" "$DEBIAN_MIRROR" || exit 1
-  sudo chown -R "$(id -u):$(id -g)" "$xroot"
-fi
-dpkg-query --admindir="$xroot/var/lib/dpkg" -W -f='${Package} ${Version}\n' xvfb x11-xkb-utils xkb-data xserver-common 2>/dev/null \
-  | tee "$W/xpackages.txt"
-rm -rf "$xlib"; mkdir -p "$xlib"
-for d in "$xroot/lib/aarch64-linux-gnu" "$xroot/usr/lib/aarch64-linux-gnu"; do [ -d "$d" ] && cp -a "$d/." "$xlib/"; done
-LP="$rt/lib/aarch64-linux-gnu:$xlib"     # r5 first: its Android-patched glibc wins
-
-echo "== Xvfb copy with XKB paths pointed at its working directory"
-python3 -I "$spike/patch-xvfb-paths.py" "$xroot/usr/bin/Xvfb" "$x11/Xvfb" || exit 1
-chmod 0755 "$x11/Xvfb"
-cat > "$x11/xkbcomp" <<EOF
-#!/bin/sh
-# Xvfb runs this through /bin/sh to compile the keymap; starts Debian's xkbcomp with the runtime's loader.
-exec "$loader" --library-path "$LP" "$xroot/usr/bin/xkbcomp" "\$@"
-EOF
-chmod 0755 "$x11/xkbcomp"
-xkbdir="$xroot/usr/share/X11/xkb"   # must be writable: xkbcomp changes into it and writes the compiled keymap there
+LP="$rt/lib/aarch64-linux-gnu"
+x11="$rt/x11"
+xkbdir="$x11/share/X11/xkb"   # writable: xkbcomp writes the compiled keymap there
+EXE="$rt/win/shc-gui-smoke.exe"
+sha256sum "$EXE" "$x11/Xvfb" "$rt/cnc-ddraw/ddraw.dll" "$LP/libc.so.6"
 
 echo "== 1. Xvfb"
-cp "$SHIM" "$x11/libshc-android-shim.so"
 export SPIKE_X11="$x11" SPIKE_LOADER="$loader" SPIKE_LP="$LP" SPIKE_FB="$W/fb" SPIKE_XKB="$xkbdir" SPIKE_ST="$st"
 sudo --preserve-env unshare --mount -- bash -c '
   for d in /tmp /var /usr/lib/xorg /usr/share/X11; do
@@ -76,7 +55,7 @@ sudo --preserve-env unshare --mount -- bash -c '
   cd "$SPIKE_X11"
   exec setpriv --reuid="$SUDO_UID" --regid="$SUDO_GID" --init-groups \
     env QEMU_STRACE=1 QEMU_LOG_FILENAME="$SPIKE_ST/xvfb.%d" \
-    "$SPIKE_LOADER" --preload ./libshc-android-shim.so --library-path "$SPIKE_LP" ./Xvfb :0 \
+    "$SPIKE_LOADER" --library-path "$SPIKE_LP" ./Xvfb :0 \
       -screen 0 1024x768x24 -fbdir "$SPIKE_FB" -nolisten tcp -nolisten unix -extension MIT-SHM -extension GLX \
       -ac -fp built-ins -xkbdir "$SPIKE_XKB"' > "$W/xvfb.log" 2>&1 &
 xvfb=$!
@@ -84,7 +63,9 @@ xvfb_alive() { pgrep -u "$(id -u)" -f "Xvfb :0" > /dev/null; }
 up=0
 for i in $(seq 1 300); do
   grep -q "@/tmp/.X11-unix/X0" /proc/net/unix && { up=1; break; }
-  kill -0 $xvfb 2>/dev/null || break
+  # $xvfb is sudo's PID (root: kill -0 fails for this user); look for the Xvfb process itself, after a grace
+  # period for the namespace setup
+  [ "$i" -gt 15 ] && ! xvfb_alive && break
   sleep 1
 done
 ls -la "$x11"
@@ -94,7 +75,7 @@ if [ $up -eq 1 ]; then result xvfb "PASS (abstract socket @/tmp/.X11-unix/X0 aft
 else result xvfb "FAIL (no socket; Xvfb alive: $(xvfb_alive && echo yes || echo no))"; fi
 echo "-- Xvfb log --"; grep -v "^> \|Could not resolve keysym" "$W/xvfb.log" | head -40
 echo "-- native ARM64 X client (xdpyinfo, same loader) --"
-DISPLAY=:0 timeout 300 "$loader" --library-path "$LP" "$xroot/usr/bin/xdpyinfo" > "$W/xdpyinfo.log" 2>&1
+DISPLAY=:0 timeout 300 "$loader" --library-path "$LP" "$x11/bin/xdpyinfo" > "$W/xdpyinfo.log" 2>&1
 xd=$?
 grep -E "^name of display|^vendor string|^version number|dimensions|depths|number of extensions|MIT-SHM|XTEST|RANDR" "$W/xdpyinfo.log" | head -12
 grep -A40 "^number of extensions" "$W/xdpyinfo.log" | grep -E "^ +[A-Z]" | tr -s ' ' | tr '\n' ' '; echo
@@ -122,16 +103,16 @@ fi
 gui_test() {
   local dir="$1" mode="$2" extra="$3" log="$W/$2.log" ok=0 code
   cp "$EXE" "$dir/shc-gui-smoke.exe"
-  (cd "$dir" && DISPLAY=:0 LD_PRELOAD="$x11/libshc-android-shim.so" WINEDLLOVERRIDES="$WINEDLLOVERRIDES$extra" WINEDEBUG="err+all,warn+x11drv,warn+winediag,fixme-all" \
+  (cd "$dir" && DISPLAY=:0 WINEDLLOVERRIDES="$WINEDLLOVERRIDES$extra" WINEDEBUG="err+all,warn+x11drv,warn+winediag,fixme-all" \
      QEMU_STRACE=1 QEMU_LOG_FILENAME="$st/$mode.%d" \
      exec timeout 2400 "$box64" "$wine" shc-gui-smoke.exe "$mode" 60 > "$log" 2>&1) &
   local pid=$!
   for i in $(seq 1 240); do
-    if python3 -I "$spike/check-fb.py" "$W/fb/Xvfb_screen0" "$mode" > "$W/$mode-pixels.txt" 2>&1; then ok=1; break; fi
+    if python3 -I "$tools/check-fb.py" "$W/fb/Xvfb_screen0" "$mode" > "$W/$mode-pixels.txt" 2>&1; then ok=1; break; fi
     kill -0 $pid 2>/dev/null || break
     sleep 10
   done
-  python3 -I "$spike/check-fb.py" "$W/fb/Xvfb_screen0" "$([ $ok -eq 1 ] && echo "$mode" || echo none)" "$W/$mode.png" \
+  python3 -I "$tools/check-fb.py" "$W/fb/Xvfb_screen0" "$([ $ok -eq 1 ] && echo "$mode" || echo none)" "$W/$mode.png" \
     > "$W/$mode-pixels-final.txt" 2>&1
   [ $ok -eq 1 ] && cat "$W/$mode-pixels.txt" || cat "$W/$mode-pixels-final.txt"
   wait $pid; code=$?
@@ -167,11 +148,17 @@ python3 -I "$repo/runtime/android/check-strace.py" "$repo/runtime/android/arm64-
   > "$W/seccomp-check.txt"; sc=$?
 grep -v " 0 outside" "$W/seccomp-check.txt"
 n=$(ls "$st" | wc -l)
+shm=$(grep -h " shm\(get\|at\|dt\|ctl\)(" "$st"/* | wc -l)
+pre=$(grep -l "cannot pre-load" "$W"/*.log 2>/dev/null | wc -l)
+echo "kernel shm* calls in all traces: $shm; logs mentioning a preload: $pre"
+if [ "$shm" -eq 0 ] && [ "$pre" -eq 0 ] && grep -q "RESULT gdi: PASS" "$W/results.txt"; then
+  result shm-fallback "PASS (no shmget reached the kernel; Wine drew the window with ordinary images; no preload)"
+else result shm-fallback "FAIL (kernel shm calls $shm, preload mentions $pre)"; fi
 if [ $sc -eq 0 ]; then result seccomp "PASS ($n process traces, no syscall outside Android's arm64 app allowlist)"
 else result seccomp "FAIL (syscalls outside the allowlist, listed above)"; fi
 
 echo "== 5. Files Xvfb and xkbcomp used outside the test directories"
-python3 -I "$spike/check-paths.py" "$W" "$st"/xvfb.* > "$W/paths-check.txt"; pc=$?
+python3 -I "$tools/check-paths.py" "$W" "$st"/xvfb.* > "$W/paths-check.txt"; pc=$?
 cat "$W/paths-check.txt"
 if [ $pc -eq 0 ]; then result paths "PASS (nothing under /usr, /var, /tmp opened successfully by Xvfb/xkbcomp)"
 else result paths "FAIL (Xvfb/xkbcomp depend on paths that do not exist on Android, listed above)"; fi

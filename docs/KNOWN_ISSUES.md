@@ -45,3 +45,13 @@
   patched. X11 MIT-SHM uses `shmget`: the phase 3 display path must work without it.
 * CI checks the Wine start-up path against the allowlist (`runtime/android/`), but only under qemu on Linux;
   the device remains the authority.
+
+## Runtime r6 notes
+
+* CI artifacts expire: r5 (run 44823423675) on 2026-12-20, r6 (run 44911670217) on 2026-12-21. Keep a downloaded
+  copy of r5 as the fallback, or ask for a GitHub pre-release to hold both.
+* `runtime/glibc-android/README.md` does not yet list the setuid/setgid/shmget hunks (kept unchanged so the r6
+  package stays byte-identical to the tested one); the patch file in the package is complete. Updated with the next
+  runtime change.
+* Xvfb is a patched copy of Debian's binary (three path strings); if Debian changes the binary layout the patch
+  step fails the build instead of producing a broken package.

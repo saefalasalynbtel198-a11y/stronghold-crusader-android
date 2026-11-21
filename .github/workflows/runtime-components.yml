@@ -244,3 +244,43 @@ jobs:
             ${{ runner.temp }}/bw/*.log
             ${{ runner.temp }}/bw/*.txt
           if-no-files-found: warn
+
+  display:
+    name: Display test under qemu-aarch64 (Xvfb, Wine GDI, cnc-ddraw; Linux not Android)
+    needs: package
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download runtime package
+        uses: actions/download-artifact@v4
+        with:
+          name: shc-runtime-package
+          path: runtime/out
+      - name: Set up JDK 17 (for the app's extractor)
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Install qemu-user-static
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends qemu-user-static binfmt-support
+      - name: Runtime package checksum
+        run: |
+          cd runtime/out
+          cat shc-runtime-*.zip.sha256
+          sha256sum -c shc-runtime-*.zip.sha256
+          ls -l shc-runtime-*.zip
+      - name: Xvfb + Wine window + cnc-ddraw, pixel, seccomp and path checks
+        run: bash runtime/scripts/test-display-qemu.sh runtime/out/shc-runtime-*.zip "$RUNNER_TEMP/display"
+      - name: Upload results (screenshots, logs, checks)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: display-test-results
+          path: |
+            ${{ runner.temp }}/display/*.png
+            ${{ runner.temp }}/display/*.log
+            ${{ runner.temp }}/display/*.txt
+          if-no-files-found: warn

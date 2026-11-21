@@ -122,6 +122,91 @@ diff -ruN a/sysdeps/unix/sysv/linux/kernel-features.h b/sysdeps/unix/sysv/linux/
  
  /* Support for various CLOEXEC and NONBLOCK flags was added in
     2.6.27.  */
+diff -ruN a/sysdeps/unix/sysv/linux/setgid.c b/sysdeps/unix/sysv/linux/setgid.c
+--- a/sysdeps/unix/sysv/linux/setgid.c
++++ b/sysdeps/unix/sysv/linux/setgid.c
+@@ -23,6 +23,23 @@
+ int
+ __setgid (gid_t gid)
+ {
++  /* Android: the app seccomp filter traps setgid with SIGSYS even when it
++     would change nothing (programs such as the X server call
++     setgid (getgid ()) before running helpers).  If the real, effective
++     and saved IDs all equal GID already, setgid cannot change anything for
++     any caller, so report success without the syscall.  Every other request,
++     including mixed IDs, goes to the kernel unchanged and keeps its normal
++     permission checks.  */
++  {
++    gid_t r, e, s;
++#ifdef __NR_getresgid32
++    int err = INTERNAL_SYSCALL_CALL (getresgid32, &r, &e, &s);
++#else
++    int err = INTERNAL_SYSCALL_CALL (getresgid, &r, &e, &s);
++#endif
++    if (err == 0 && r == gid && e == gid && s == gid)
++      return 0;
++  }
+ #ifdef __NR_setgid32
+   return INLINE_SETXID_SYSCALL (setgid32, 1, gid);
+ #else
+diff -ruN a/sysdeps/unix/sysv/linux/setuid.c b/sysdeps/unix/sysv/linux/setuid.c
+--- a/sysdeps/unix/sysv/linux/setuid.c
++++ b/sysdeps/unix/sysv/linux/setuid.c
+@@ -22,6 +22,23 @@
+ int
+ __setuid (uid_t uid)
+ {
++  /* Android: the app seccomp filter traps setuid with SIGSYS even when it
++     would change nothing (programs such as the X server call
++     setuid (getuid ()) before running helpers).  If the real, effective
++     and saved IDs all equal UID already, setuid cannot change anything for
++     any caller, so report success without the syscall.  Every other request,
++     including mixed IDs, goes to the kernel unchanged and keeps its normal
++     permission checks.  */
++  {
++    uid_t r, e, s;
++#ifdef __NR_getresuid32
++    int err = INTERNAL_SYSCALL_CALL (getresuid32, &r, &e, &s);
++#else
++    int err = INTERNAL_SYSCALL_CALL (getresuid, &r, &e, &s);
++#endif
++    if (err == 0 && r == uid && e == uid && s == uid)
++      return 0;
++  }
+ #ifdef __NR_setuid32
+   return INLINE_SETXID_SYSCALL (setuid32, 1, uid);
+ #else
+diff -ruN a/sysdeps/unix/sysv/linux/shmget.c b/sysdeps/unix/sysv/linux/shmget.c
+--- a/sysdeps/unix/sysv/linux/shmget.c
++++ b/sysdeps/unix/sysv/linux/shmget.c
+@@ -15,6 +15,7 @@
+    License along with the GNU C Library; if not, see
+    <https://www.gnu.org/licenses/>.  */
+ 
++#include <errno.h>
+ #include <sys/msg.h>
+ #include <stddef.h>
+ #include <ipc_priv.h>
+@@ -26,9 +27,14 @@
+ int
+ shmget (key_t key, size_t size, int shmflg)
+ {
+-#ifdef __ASSUME_DIRECT_SYSVIPC_SYSCALLS
+-  return INLINE_SYSCALL_CALL (shmget, key, size, shmflg, NULL);
+-#else
+-  return INLINE_SYSCALL_CALL (ipc, IPCOP_shmget, key, size, shmflg, NULL);
+-#endif
++  /* Android: the app seccomp filter traps shmget (and the other System V IPC
++     syscalls) with SIGSYS, which kills the process.  Fail the way a kernel
++     built without System V IPC does, so callers take their fallback path
++     (Wine's X11 driver tries a shared-memory image for every window surface
++     and falls back to ordinary XImages).  Other shared memory (mmap, memfd,
++     POSIX shm) is not affected.  */
++  (void) key;
++  (void) size;
++  (void) shmflg;
++  return INLINE_SYSCALL_ERROR_RETURN_VALUE (ENOSYS);
+ }
 diff -ruN a/sysdeps/unix/sysv/linux/spawni.c b/sysdeps/unix/sysv/linux/spawni.c
 --- a/sysdeps/unix/sysv/linux/spawni.c
 +++ b/sysdeps/unix/sysv/linux/spawni.c
