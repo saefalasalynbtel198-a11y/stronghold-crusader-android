@@ -266,6 +266,12 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends qemu-user-static binfmt-support
+      - name: Runtime package checksum
+        run: |
+          cd runtime/out
+          cat shc-runtime-*.zip.sha256
+          sha256sum -c shc-runtime-*.zip.sha256
+          ls -l shc-runtime-*.zip
       - name: Xvfb + Wine window + cnc-ddraw, pixel, seccomp and path checks
         run: bash runtime/scripts/test-display-qemu.sh runtime/out/shc-runtime-*.zip "$RUNNER_TEMP/display"
       - name: Upload results (screenshots, logs, checks)
