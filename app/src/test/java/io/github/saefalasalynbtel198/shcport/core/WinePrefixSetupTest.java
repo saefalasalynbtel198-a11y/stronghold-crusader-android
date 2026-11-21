@@ -66,7 +66,13 @@ public class WinePrefixSetupTest {
         File parent = tmp.newFolder("files", "prefix");
         assertTrue(parent.setWritable(false, false));
         try {
-            Assume.assumeFalse("root ignores directory permissions", new File(parent, "probe").createNewFile());
+            boolean canStillWrite;
+            try {
+                canStillWrite = new File(parent, "probe").createNewFile();   // true only as root
+            } catch (java.io.IOException e) {
+                canStillWrite = false;                                        // EACCES: permissions apply
+            }
+            Assume.assumeFalse("root ignores directory permissions", canStillWrite);
             WinePrefixSetup.ParentCheck c = WinePrefixSetup.ensureParent(new File(parent, "wine"));
             assertFalse(c.ok);
             assertTrue(c.report, c.report.contains("write test: FAILED"));
