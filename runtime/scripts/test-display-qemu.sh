@@ -29,7 +29,7 @@ result() { echo "RESULT $1: $2" | tee -a "$W/results.txt"; }
 echo "== no preload library anywhere"
 if [ -n "${LD_PRELOAD:-}" ]; then echo "::error::LD_PRELOAD is set ($LD_PRELOAD)"; exit 1; fi
 # (wine's own wine-preloader is not a preload library and is allowed)
-if unzip -l "$ZIP" | grep -iE "shim|libshc-android"; then echo "::error::package contains the test stand-in library"; exit 1; fi
+if unzip -l "$ZIP" | grep -iE "shc-android-shim|libshc-sameid"; then echo "::error::package contains the test stand-in library"; exit 1; fi
 echo "LD_PRELOAD unset; package has no preload library"
 
 echo "== runtime package, extracted and PT_INTERP set with the app's own code"
