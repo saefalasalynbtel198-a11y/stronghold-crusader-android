@@ -65,13 +65,14 @@ PY
 # Xvfb depends on libgl1, which pulls in Mesa (LLVM, Gallium drivers, ~hundreds of MB). The runtime starts Xvfb
 # with GLX disabled and has no Mesa use yet, so the Mesa driver files are removed; libGL/libGLX/libGLdispatch
 # (GLVND, which load a vendor library only when GLX is used) stay because Xvfb links against libGL.so.1.
-echo "largest userland files before removing Mesa:"; find "$merged" -type f -printf '%s %p\n' | sort -rn | head -12
+find "$merged" -type f -printf '%s %f\n' | sort -rn > "$here/out/userland-sizes.txt"
+echo "largest userland files before removing Mesa:"; sed -n '1,12p' "$here/out/userland-sizes.txt"
 removed=0
 for pat in 'libLLVM*' 'libgallium*' 'libGLX_mesa*' 'libEGL_mesa*' 'libgbm*' 'libvulkan_*' 'libxatracker*' 'libz3*'; do
   for f in "$merged"/$pat; do [ -e "$f" ] || [ -L "$f" ] || continue; rm -f "$f"; removed=$((removed+1)); done
 done
 rm -rf "$merged/dri" "$merged/gbm" "$merged/vdpau"
-echo "removed $removed Mesa/LLVM files"
+echo "removed $removed Mesa/LLVM files; userland now $(du -sh "$merged" | cut -f1)"
 
 ld="$merged/ld-linux-aarch64.so.1"
 [ -e "$ld" ] || { echo "::error::glibc loader not found in lib/ or usr/lib/aarch64-linux-gnu"; ls "$out" "$out/lib" 2>/dev/null; exit 1; }
