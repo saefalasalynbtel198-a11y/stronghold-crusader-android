@@ -1,4 +1,10 @@
-# APK signing key (since 0.3.6-dev.3)
+# APK signing key
+
+> **Current state (owner's decision, 2026-11-21): SHC Port 0.3.6 is signed with the standard automatic Android debug
+> key of the CI build machine.** No secret is used. That key differs between builds, so a later APK may again need the
+> previous app to be uninstalled first. The seed-derived permanent key below is implemented
+> (scripts/ci/signing.sh, scripts/ci/signing/) but is not used by CI; it can be switched on later if wanted.
+
 
 Every APK of the app (`io.github.saefalasalynbtel198.shcport`, label "SHC Port") is signed with one permanent key.
 Each new APK therefore installs over the previous one as an update and keeps the app's data (runtime, Wine prefix,

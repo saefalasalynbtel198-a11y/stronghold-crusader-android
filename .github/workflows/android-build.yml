@@ -22,16 +22,10 @@ env:
 
 jobs:
   build:
-    # Two independent builds on separate runners, both signed with the key derived from SHC_SIGNING_SEED:
-    #   main   - the APK to install (unit tests, lint, checks)
-    #   update - same code, version code + 1: only for the emulator update test and the certificate comparison
-    name: Build ${{ matrix.variant }} APK${{ matrix.variant == 'main' && ' (test, lint, verify)' || ' (update test)' }}
+    # Signed with the standard automatic Android debug key of the build machine (owner's decision for 0.3.6).
+    name: Test, lint, build and verify APK
     runs-on: ubuntu-24.04
     timeout-minutes: 45
-    strategy:
-      fail-fast: false
-      matrix:
-        variant: [main, update]
     steps:
       - name: Check out
         uses: actions/checkout@v4
@@ -77,53 +71,37 @@ jobs:
           sha256sum app/build/generated/shc-assets/shc-display-test.exe
 
       - name: Unit tests
-        if: matrix.variant == 'main'
         run: |
           mkdir -p build-logs
           set -o pipefail
           gradle --no-daemon --stacktrace :app:testDebugUnitTest 2>&1 | tee build-logs/unit-tests.log
 
       - name: Lint
-        if: matrix.variant == 'main'
         run: |
           mkdir -p build-logs
           set -o pipefail
           gradle --no-daemon --stacktrace :app:lintDebug 2>&1 | tee build-logs/lint.log
 
-      # The SHC signing key (docs/SIGNING.md): derived from the GitHub Actions secret SHC_SIGNING_SEED, checked
-      # against the committed certificate, written to a temporary keystore. No secret: this fails, no other key.
-      - name: Signing key (derived from the SHC_SIGNING_SEED secret)
-        env:
-          SHC_SIGNING_SEED: ${{ secrets.SHC_SIGNING_SEED }}
-        run: bash scripts/ci/signing.sh setup
-
-      - name: Assemble APK (io.github.saefalasalynbtel198.shcport, signed with the SHC key)
+      - name: Assemble APK (io.github.saefalasalynbtel198.shcport, standard debug signing)
         run: |
           mkdir -p build-logs
           set -o pipefail
-          bump=$([ "${{ matrix.variant }}" = update ] && echo 1 || echo 0)
-          gradle --no-daemon --stacktrace :app:assembleDebug -PshcRequireSigningKey=true -PshcVersionCodeBump=$bump 2>&1 | tee build-logs/assemble.log
+          gradle --no-daemon --stacktrace :app:assembleDebug 2>&1 | tee build-logs/assemble.log
+          cp app/build/outputs/apk/debug/app-debug.apk "SHC-Port-${{ steps.version.outputs.name }}.apk"
 
-      - name: Remove the temporary keystore
-        if: always()
-        run: bash scripts/ci/signing.sh cleanup
-
-      - name: Verify APK (package, version, contents)
-        run: bash scripts/ci/verify-apk.sh app/build/outputs/apk/debug/app-debug.apk "${{ steps.version.outputs.name }}"
-
-      - name: Verify the APK is signed with the pinned SHC certificate
-        run: bash scripts/ci/signing.sh verify app/build/outputs/apk/debug/app-debug.apk
+      - name: Verify APK (package, version, contents, signature)
+        run: bash scripts/ci/verify-apk.sh "SHC-Port-${{ steps.version.outputs.name }}.apk" "${{ steps.version.outputs.name }}"
 
       - name: Check the display test program is in the APK
         run: |
-          unzip -l app/build/outputs/apk/debug/app-debug.apk | tee /tmp/apk-list.txt | grep "assets/shc-display-test.exe"
-          unzip -p app/build/outputs/apk/debug/app-debug.apk assets/shc-display-test.exe | sha256sum
+          unzip -l "SHC-Port-${{ steps.version.outputs.name }}.apk" | tee /tmp/apk-list.txt | grep "assets/shc-display-test.exe"
+          unzip -p "SHC-Port-${{ steps.version.outputs.name }}.apk" assets/shc-display-test.exe | sha256sum
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.variant == 'main' && 'Stronghold-Crusader-Android-APK' || 'update-test-APK-not-for-installation' }}
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: Stronghold-Crusader-Android-APK
+          path: SHC-Port-${{ steps.version.outputs.name }}.apk
           if-no-files-found: error
           retention-days: 30
 
@@ -131,7 +109,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: build-logs-${{ matrix.variant }}
+          name: build-logs
           path: |
             build-logs/
             apk-signature.txt
@@ -140,43 +118,9 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
-  same-certificate:
-    name: Both independent builds have the same signing certificate
-    needs: build
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    steps:
-      - name: Check out
-        uses: actions/checkout@v4
-      - name: Download the main APK
-        uses: actions/download-artifact@v4
-        with:
-          name: Stronghold-Crusader-Android-APK
-          path: main
-      - name: Download the update-test APK
-        uses: actions/download-artifact@v4
-        with:
-          name: update-test-APK-not-for-installation
-          path: update
-      - name: Compare certificates, package and versions
-        run: |
-          bt=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -n1)
-          for v in main update; do
-            c=$("$bt/apksigner" verify --print-certs "$v/app-debug.apk" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')
-            echo "$v: $("$bt/aapt2" dump badging "$v/app-debug.apk" | head -1 | cut -d' ' -f2-4) certificate $c"
-            echo "$c" > "$v.cert"
-            bash scripts/ci/signing.sh verify "$v/app-debug.apk"
-          done
-          cmp main.cert update.cert && echo "Same certificate in both independent builds: $(cat main.cert)"
-          {
-            echo "### Signing"
-            echo "Both independent builds are signed with certificate \`$(cat main.cert)\` (pinned)."
-            echo "Main APK SHA-256: \`$(sha256sum main/app-debug.apk | cut -d' ' -f1)\`"
-          } >> "$GITHUB_STEP_SUMMARY"
-
   smoke-test:
-    name: Emulator (x86_64, API 30) smoke test and update test
-    needs: [build, same-certificate]
+    name: Emulator smoke test (x86_64, API 30)
+    needs: build
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     permissions:
@@ -191,12 +135,6 @@ jobs:
         with:
           name: Stronghold-Crusader-Android-APK
           path: apk
-
-      - name: Download the update-test APK
-        uses: actions/download-artifact@v4
-        with:
-          name: update-test-APK-not-for-installation
-          path: update-apk
 
       # The owner's installed 0.3.5-dev.1 APK (CI debug key fcd0e71c...), to confirm on the emulator that it cannot be
       # updated in place (so the one-time uninstall on the phone is expected) before the new app is installed.
@@ -223,7 +161,7 @@ jobs:
           force-avd-creation: false
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           disable-animations: true
-          script: bash scripts/ci/smoke-test.sh apk/app-debug.apk smoke-test-output old-apk/app-debug.apk update-apk/app-debug.apk
+          script: bash scripts/ci/smoke-test.sh apk/SHC-Port-*.apk smoke-test-output old-apk/app-debug.apk
 
       - name: Upload smoke-test output
         if: always()

@@ -3,8 +3,8 @@ plugins {
 }
 
 // Version is defined once here; CI and release workflows read it via `gradle -q printVersion`.
-def appVersionName = '0.3.6-dev.3'
-def appVersionCode = 13
+def appVersionName = '0.3.6'
+def appVersionCode = 14
 
 android {
     // Windows test programs built by CI with mingw-w64 (app/winsrc, see .github/workflows/android-build.yml);
@@ -61,14 +61,11 @@ android {
 
     buildTypes {
         debug {
-            // The app itself (application ID io.github.saefalasalynbtel198.shcport), signed with the SHC key.
-            versionNameSuffix '-debug'
+            // The app itself (application ID io.github.saefalasalynbtel198.shcport, label "SHC Port"). Signed with the
+            // standard automatic Android debug key of the build machine (owner's decision for 0.3.6, docs/SIGNING.md).
             resValue 'string', 'app_label', 'SHC Port'
             if (System.getenv('SHC_SIGNING_KEYSTORE_FILE')) {
-                signingConfig signingConfigs.shc
-            } else if (project.findProperty('shcRequireSigningKey') == 'true') {
-                // CI passes -PshcRequireSigningKey=true: never fall back to an auto-generated debug key.
-                throw new GradleException('SHC signing key required (-PshcRequireSigningKey=true) but SHC_SIGNING_KEYSTORE_FILE is not set. See docs/SIGNING.md.')
+                signingConfig signingConfigs.shc     // optional, not used by CI for 0.3.6
             }
         }
         release {

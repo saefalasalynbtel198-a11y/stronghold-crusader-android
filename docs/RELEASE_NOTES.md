@@ -1,13 +1,14 @@
 # Release notes
 
-## 0.3.6-dev.3 — permanent signing key; replaces 0.3.5-dev.1 (not a playable game)
+## 0.3.6 — SHC Port: game launch test (development build, not yet a playable game)
 
-* The app keeps its ID `io.github.saefalasalynbtel198.shcport` (label "SHC Port") and is signed with one permanent key,
-  derived in CI from the GitHub Actions secret SHC_SIGNING_SEED and pinned by its certificate (docs/SIGNING.md).
-  Later APKs install as updates and keep the app's data.
-* 0.3.5-dev.1 was signed with a throwaway CI key and must be uninstalled once before installing this APK; afterwards:
-  install runtime r6 from its zip, import the game from its original folder (the Wine prefix is created automatically).
-* Game launch test (step 3.3) unchanged from 0.3.6-dev.1. Start Game stays disabled. No runtime change (r6).
+* App "SHC Port", package `io.github.saefalasalynbtel198.shcport`, version 0.3.6, signed with the standard Android
+  debug key. 0.3.5 must be uninstalled first (different signing key); then install runtime r6 from its zip and import
+  the game folder again (the Wine prefix is created automatically).
+* Runtime → **Game launch test**: starts the imported Stronghold Crusader through Box64 → Wine → cnc-ddraw (GDI) →
+  X11 → Xvfb → the app's screen, after a DirectDraw pre-check; the game folder is checked before and after. No input
+  and no sound yet. Start Game stays disabled until the game is verified on a phone.
+* Includes the device-verified display test (step 3.2) and its fixes. No runtime change (r6).
 
 ## 0.3.6-dev.1 — BUILD 3 step 3.3: game launch test (development build, not a playable game)
 

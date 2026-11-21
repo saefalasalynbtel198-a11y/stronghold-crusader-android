@@ -71,8 +71,8 @@
   — CI-reproduced and CI-tested, not yet device-tested.
 * Up to 0.3.6-dev.2, CI debug APKs were signed with a new key on every CI run (0.3.5-dev.1 `fcd0e71c…`), so Android
   refuses updates between them; uninstalling removes the runtime, the Wine prefix and the imported game copy. This is
-  the likely reason `files/prefix` was missing before the 0.3.4 run. Since 0.3.6-dev.3: one permanent key derived from
-  the secret SHC_SIGNING_SEED (docs/SIGNING.md); 0.3.5-dev.1 must be uninstalled once.
+  the likely reason `files/prefix` was missing before the 0.3.4 run. 0.3.6 is also debug-signed (owner's decision): 0.3.5-dev.1
+  must be uninstalled first, and a later APK may need the same (docs/SIGNING.md).
 
 * 0.3.3-dev.1 passes the hard-link check on the device but Xvfb fails with "Cannot write display number to fd 3"
   (Android's mksh closes fd 3 on exec); fixed in 0.3.4-dev.1 (`-displayfd 1`, no shell) — CI-reproduced and
