@@ -190,7 +190,7 @@ Last updated: 2026-11-20 (BUILD 2 device report 2: glibc patched for Android sec
    0.4.0 on the device: Start Game, intro and menu OK; cursor and keys OK; taps did not click.
    0.4.1: clicks held 120 ms (game polls the button state), Right toggle for right click/hold; CI-tested only.
    0.4.1 on the device (owner, 2026-11-24): **playable** — menus, start a game, select units (tap, drag), move
-   orders, building tools, placement and construction. Baseline recorded: docs/BASELINE_0.4.1.md, tag v0.4.1-baseline.
+   orders, building tools, placement and construction. Baseline recorded: docs/BASELINE_0.4.1.md (commit 890ef28).
    Next: experienced-player control evaluation (owner's friend); audio/resolution investigated
    (docs/AUDIO_AND_RESOLUTION_INVESTIGATION.md), implementation waits for the owner's decision.
 1. Owner: install app 0.3.5-dev.1 (keep runtime r6), Runtime → Display test → Start, check the screen, pause/resume,

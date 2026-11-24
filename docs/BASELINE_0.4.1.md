@@ -20,7 +20,7 @@ extended play. No sound (see AUDIO_INVESTIGATION.md).
 
 | Item | Value |
 |---|---|
-| Code commit | `890ef28` on `feature/build3-step3.3-game-launch` (PR #8, draft, not merged); git tag `v0.4.1-baseline` |
+| Code commit | `890ef28e26688d3dce8b60f4ee89c5a5e7438193` on `feature/build3-step3.3-game-launch` (PR #8, draft, not merged) |
 | APK | `SHC-Port-0.4.1.apk`, version 0.4.1 (code 18), Android build run 45409648398, artifact 14928240232 (expires 2026-12-24) |
 | APK SHA-256 | `955372f9e44bfe934154cd007c49a719d51dc6f71376418a2fdbd0ef819c8e3c` |
 | APK signer | standard debug key of that CI run, certificate SHA-256 `00c6354cb6a082a63414cdb406084914fb334c7179f600f6ecd0bb7361ed7667` |
@@ -28,8 +28,10 @@ extended play. No sound (see AUDIO_INVESTIGATION.md).
 | Wine | Kron4ek `wine-11.0-amd64-wow64.tar.xz`, SHA-256 `39574efa1132c3ca0d5c77dd2eddbe4a49cca0d6cc2c290ff4924493a1c40314` |
 | cnc-ddraw | v7.0.0.0 `ddraw.dll`, SHA-256 `c7b25b41c8be1e8c5c46fdf79dd5a06a455cc95bf0d6625436c8170b9bb65133` |
 
-Recover the baseline: `git checkout v0.4.1-baseline`; the CI of that commit rebuilds the same app (the debug signing key
-differs per run, so a rebuilt APK needs an uninstall first).
+Recover the baseline: `git checkout 890ef28` (the commit the 0.4.1 APK was built from; it stays in the branch history).
+A tag `v0.4.1-baseline` could not be pushed from the build session (tag pushes are not permitted there); the owner can
+add it on GitHub if wanted. The CI of that commit rebuilds the same app (the debug signing key differs per run, so a
+rebuilt APK needs an uninstall first).
 
 ## Launch path (unchanged since the device-verified 0.3.8)
 
