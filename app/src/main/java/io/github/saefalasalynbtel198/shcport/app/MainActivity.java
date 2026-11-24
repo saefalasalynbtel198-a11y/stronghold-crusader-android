@@ -96,7 +96,7 @@ public final class MainActivity extends Activity implements GameImporter.Listene
         col.addView(Ui.heading(this, "Tools"));
         col.addView(Ui.row(this,
                 Ui.button(this, "Touch controls test", v -> startActivity(new Intent(this, TouchTestActivity.class))),
-                Ui.button(this, "Control settings", v -> startActivity(new Intent(this, SettingsActivity.class))),
+                Ui.button(this, "Settings (sound, controls)", v -> startActivity(new Intent(this, SettingsActivity.class))),
                 Ui.button(this, "Diagnostics", v -> startActivity(new Intent(this, DiagnosticsActivity.class)))));
         col.addView(Ui.row(this,
                 Ui.button(this, "Export saves…", v -> pickFolder(REQ_EXPORT_SAVES)),

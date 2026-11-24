@@ -299,6 +299,8 @@ final class DisplayTestSession {
     String precheckDetails = "";
     /** Environment of the game process: the plan's, without +relay when the relay filter could not be set. */
     Map<String, String> gameEnv;
+    /** Added to the game's environment in play mode (game sound: ALSA_CONFIG_PATH). Set before {@link #start}. */
+    final Map<String, String> extraGameEnv = new java.util.LinkedHashMap<>();
 
     /**
      * Setup inside the prefix, the DirectDraw pre-check (the runtime's own DirectDraw program through the same
@@ -315,6 +317,12 @@ final class DisplayTestSession {
         if (play) {
             // normal game: Wine errors and DLL loading only (as the device-verified pre-check), no relay trace
             gameEnv = plan.envWith(WineLaunchPlan.WINEDEBUG_PLAY);
+            if (!extraGameEnv.isEmpty()) {
+                Map<String, String> e = new java.util.LinkedHashMap<>(gameEnv);
+                e.putAll(extraGameEnv);
+                gameEnv = java.util.Collections.unmodifiableMap(e);
+                log("game environment additions: " + extraGameEnv);
+            }
         } else {
             // Limit Wine's relay trace to the functions that show how the game ends (WineLaunchPlan.RELAY_INCLUDE).
             // reg.exe itself runs without +relay (the filter does not exist yet); only if it succeeds does the game get +relay.

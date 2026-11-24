@@ -30,7 +30,9 @@ public final class SettingsActivity extends Activity {
 
     private void build() {
         LinearLayout col = Ui.column(this);
-        col.addView(Ui.title(this, "Touch control settings"));
+        col.addView(Ui.title(this, "Settings"));
+        buildSound(col);
+        col.addView(Ui.heading(this, "Touch controls"));
         col.addView(Ui.muted(this, "Try changes on the touch-controls test screen. Defaults keep the original "
                 + "mouse mechanics: one-finger drag = left-button drag (box select, walls)."));
 
@@ -58,6 +60,38 @@ public final class SettingsActivity extends Activity {
             build();
         }));
         setContentView(Ui.scroll(this, col));
+    }
+
+    /** Game sound: on/off (next Start Game), volume and mute (immediately, also while the game runs). */
+    private void buildSound(LinearLayout col) {
+        AudioSettingsStore store = new AudioSettingsStore(this);
+        io.github.saefalasalynbtel198.shcport.core.AudioSettings a = store.load();
+        ShcApplication app = (ShcApplication) getApplication();
+        Runnable save = () -> {
+            store.save(a);
+            app.audio = a.sanitized();
+        };
+        col.addView(Ui.heading(this, "Sound"));
+        col.addView(Ui.muted(this, "The game's own options set music and effects separately; these apply on top. "
+                + "Turning sound on or off takes effect at the next Start Game."));
+        addSwitch(col, "Game sound", a.enabled, (b, on) -> { a.enabled = on; save.run(); });
+        final TextView t = Ui.body(this, "");
+        col.addView(Ui.heading(this, "Volume (%)"));
+        col.addView(t);
+        SeekBar bar = new SeekBar(this);
+        bar.setMax(100);
+        bar.setProgress(a.volume);
+        t.setText(String.format(Locale.ROOT, "%d", a.volume));
+        bar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override public void onProgressChanged(SeekBar s, int progress, boolean fromUser) {
+                t.setText(String.format(Locale.ROOT, "%d", progress));
+                if (fromUser) { a.volume = progress; app.audio = a.sanitized(); }
+            }
+            @Override public void onStartTrackingTouch(SeekBar s) { }
+            @Override public void onStopTrackingTouch(SeekBar s) { save.run(); }
+        });
+        col.addView(bar);
+        addSwitch(col, "Mute", a.muted, (b, on) -> { a.muted = on; save.run(); });
     }
 
     private void addSlider(LinearLayout col, String label, final int min, int max, int value, final IntSetter setter) {

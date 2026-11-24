@@ -154,6 +154,7 @@ public final class GameActivity extends Activity implements Choreographer.FrameC
         wantStart = false;
         final int gen = life.generation();
         DisplayTestSession s = new DisplayTestSession(this, app.paths(), true, true, (st, msg) -> { });
+        startSound(s);
         app.playSession = s;
         attachedSource = false;
         new Thread(() -> {
@@ -171,18 +172,83 @@ public final class GameActivity extends Activity implements Choreographer.FrameC
         }, "game-start").start();
     }
 
-    /** Stops the processes of the current session (Wine, Xvfb) and releases input; blocking, background thread. */
+    /**
+     * Game sound (when switched on in Settings and the APK has the ALSA plugin): the bridge listens before the game
+     * starts and the game gets ALSA_CONFIG_PATH. Without it the game starts exactly as in 0.4.1 (no sound output).
+     */
+    private void startSound(DisplayTestSession s) {
+        io.github.saefalasalynbtel198.shcport.core.AudioSettings a = app.audio;
+        if (a == null || !a.enabled) {
+            s.log("game sound: off (Settings)");
+            return;
+        }
+        AudioBridge b = new AudioBridge(() -> app.audio);
+        java.io.File conf = AudioBridge.prepareConfig(this, app.paths(), b.socketName);
+        if (conf == null) {
+            s.log("game sound: not available (no ALSA plugin in this APK or app storage not writable)");
+            return;
+        }
+        try {
+            b.start();
+        } catch (java.io.IOException e) {
+            s.log("game sound: cannot listen: " + e.getMessage());
+            return;
+        }
+        s.extraGameEnv.putAll(io.github.saefalasalynbtel198.shcport.core.GameSoundEnv.forConfig(conf.getPath()));
+        app.playAudio = b;
+        requestAudioFocus(b);
+        s.log("game sound: " + b.status + ", ALSA config " + conf);
+    }
+
+    private boolean focusLost;
+
+    /** Pauses the sound while another app (call, alarm, music) has Android's audio focus. */
+    private void requestAudioFocus(AudioBridge b) {
+        android.media.AudioManager am = (android.media.AudioManager) getSystemService(AUDIO_SERVICE);
+        if (am == null || android.os.Build.VERSION.SDK_INT < 26) return;
+        ShcApplication a = app;
+        android.media.AudioFocusRequest req = new android.media.AudioFocusRequest.Builder(android.media.AudioManager.AUDIOFOCUS_GAIN)
+                .setAudioAttributes(new android.media.AudioAttributes.Builder()
+                        .setUsage(android.media.AudioAttributes.USAGE_GAME)
+                        .setContentType(android.media.AudioAttributes.CONTENT_TYPE_MUSIC).build())
+                .setOnAudioFocusChangeListener(change -> ui.post(() -> {
+                    if (a.playAudio != b) return;
+                    if (change == android.media.AudioManager.AUDIOFOCUS_LOSS
+                            || change == android.media.AudioManager.AUDIOFOCUS_LOSS_TRANSIENT) {
+                        focusLost = true;
+                        b.setPaused(true);
+                    } else if (change == android.media.AudioManager.AUDIOFOCUS_GAIN) {
+                        focusLost = false;
+                        if (resumed) b.setPaused(false);
+                    }
+                }))
+                .build();
+        am.requestAudioFocus(req);
+        app.playAudioFocus = req;
+    }
+
+    /** Stops the processes of the current session (Wine, Xvfb) and releases input and sound; background thread. */
     private static void stopSession(ShcApplication app) {
         SessionLifecycle life = app.playLife;
         DisplayTestSession s = app.playSession;
         GameInput in = app.playInput;
+        AudioBridge audio = app.playAudio;
         if (life.beginStop()) {
             if (in != null) in.close();
             if (s != null) {
                 s.stop();
+                if (audio != null) for (String l : audio.describe()) s.log(l);
                 s.save(s.report(new FramebufferRenderer.Stats(), 0, 0, false));
             }
+            if (audio != null) audio.close();       // after Wine has stopped: no stream is left open
         }
+        Object focus = app.playAudioFocus;
+        if (focus != null && android.os.Build.VERSION.SDK_INT >= 26) {
+            android.media.AudioManager am = (android.media.AudioManager) app.getSystemService(AUDIO_SERVICE);
+            if (am != null) am.abandonAudioFocusRequest((android.media.AudioFocusRequest) focus);
+        }
+        app.playAudioFocus = null;
+        app.playAudio = null;
         app.playInput = null;
         app.playSession = null;
         life.stopped();
@@ -221,7 +287,9 @@ public final class GameActivity extends Activity implements Choreographer.FrameC
         String text = s == null ? "No game session." : s.report(renderer.stats, pauses, resumes, true);
         if (s != null) s.save(text);
         GameInput in = app.playInput;
-        if (in != null) text = "Input: " + in.status + ", " + in.sent + " events sent\n" + text;
+        AudioBridge audio = app.playAudio;
+        String sound = audio == null ? "Sound: off or not available\n" : String.join("\n", audio.describe()) + "\n";
+        if (in != null) text = "Input: " + in.status + ", " + in.sent + " events sent\n" + sound + text;
         ClipboardManager cm = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
         cm.setPrimaryClip(ClipData.newPlainText("SHC Port game report", text));
         Toast.makeText(this, "Report copied (also saved in the app's logs)", Toast.LENGTH_SHORT).show();
@@ -294,6 +362,8 @@ public final class GameActivity extends Activity implements Choreographer.FrameC
             if (s != null) s.log("game screen resumed (" + resumes + ")");
         }
         resumed = true;
+        AudioBridge audio = app.playAudio;
+        if (audio != null && !focusLost) audio.setPaused(false);
         Choreographer.getInstance().postFrameCallback(this);
     }
 
@@ -302,6 +372,8 @@ public final class GameActivity extends Activity implements Choreographer.FrameC
         resumed = false;
         Choreographer.getInstance().removeFrameCallback(this);
         surface.releaseAll();
+        AudioBridge audio = app.playAudio;
+        if (audio != null) audio.setPaused(true);   // no game sound while the screen is not shown
         view.onPause();                  // the game and Xvfb keep running; drawing resumes in onResume
         pauses++;
         DisplayTestSession s = app.playSession;
