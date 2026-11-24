@@ -68,8 +68,8 @@
   building). Comfort of the controls in long play is being evaluated by an experienced player.
 * cnc-ddraw ignores mouse buttons while its cursor lock is off; if the lock is ever lost, the first click only
   re-locks it (a second tap then works).
-* No sound: Wine's ALSA driver cannot open sound devices on Android (apps have no /dev/snd access). Needs an audio
-  backend that Android allows (for example AAudio through a PulseAudio server for winepulse) in a future runtime.
+* Sound (0.5.0): through the SHC ALSA plugin and the app's AudioTrack output; CI-verified up to the app's receiver
+  (Box64/Wine/qemu), not yet heard on a phone. Latency about 150 ms (ALSA buffer + 100 ms AudioTrack buffer).
 * When the app is in the background, Android may freeze or stop it (no foreground service yet); return to the game
   through Start Game. If Android kills the app, the next start stops leftover Wine/Xvfb processes.
 * The game screen's long press = right click uses the touch settings' long-press time (Control settings).

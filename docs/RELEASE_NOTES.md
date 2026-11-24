@@ -1,5 +1,23 @@
 # Release notes
 
+## 0.5.0 — game sound (test build; touch controls unchanged from 0.4.1)
+
+* Device result of 0.4.1 (owner): playable — menus, starting a game, unit selection by tap and drag, move orders,
+  building placement and construction. 0.4.1 is the recorded baseline (docs/BASELINE_0.4.1.md).
+* Why there was no sound: Wine sends the game's sound through its ALSA driver to runtime r6's native libasound, which
+  needs ALSA sound devices; Android does not let apps open them (docs/AUDIO_AND_RESOLUTION_INVESTIGATION.md).
+* New: a small ALSA plugin (arm64, in the APK) hands the sound to the app, which plays it through Android (AudioTrack,
+  one per stream the game opens). The game is paced by the real output; if the app is not listening the plugin keeps
+  time by the clock, so the game never waits for sound.
+* Settings → Sound: Game sound on/off (next Start Game; off = launch exactly as 0.4.1), Volume, Mute (live). Music and
+  effects keep their own sliders in the game's options.
+* Sound pauses while the game screen is not shown or another app takes the audio focus (call, alarm) and resumes
+  after; it stops with Exit. Report shows the sound streams (rate, channels, buffer, underruns).
+* Runtime r6 files unchanged: the plugin and its configuration are installed into app storage; the game's environment
+  gains ALSA_CONFIG_PATH and winepulse.drv=d (Wine's ALSA driver only) when sound is on.
+* Touch input, click timing, gestures and the display are unchanged.
+* Not verified on a phone yet. 0.4.1 must be uninstalled first (debug key of each build differs).
+
 ## 0.4.1 — taps click in the game (fix of 0.4.0's touch input)
 
 * Device result of 0.4.0 (owner, Stronghold Crusader HD 1.41): Start Game, intro and main menu work; the cursor
