@@ -2,12 +2,13 @@
  * Drives ALSA the way Wine's winealsa does (non-blocking open of "default", S16 stereo 48 kHz, ~10 ms periods, 4-period
  * buffer, start threshold 1, stop threshold = buffer, writes every 10 ms what avail allows, XRUN recovery) and plays a
  * tone for <seconds>. Prints how long it took: with a working plugin the elapsed time follows the output's real rate.
- * Usage: alsa-client-test <seconds> <frequency>
+ * Usage: alsa-client-test <seconds> <frequency> [float]
  */
 #include <alsa/asoundlib.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <time.h>
 
 static double now(void) {
@@ -19,6 +20,7 @@ static double now(void) {
 int main(int argc, char **argv) {
     double secs = argc > 1 ? atof(argv[1]) : 3;
     double freq = argc > 2 ? atof(argv[2]) : 440;
+    int fl = argc > 3 && !strcmp(argv[3], "float");
     snd_pcm_t *pcm;
     int err;
     if ((err = snd_pcm_open(&pcm, "default", SND_PCM_STREAM_PLAYBACK, SND_PCM_NONBLOCK)) < 0) {
@@ -38,7 +40,10 @@ int main(int argc, char **argv) {
            snd_pcm_format_mask_test(fm, SND_PCM_FORMAT_S16_LE), snd_pcm_format_mask_test(fm, SND_PCM_FORMAT_FLOAT_LE), rmax, cmax);
     unsigned rate = 48000, period_us = 10000, periods = 4;
     snd_pcm_hw_params_set_access(pcm, hw, SND_PCM_ACCESS_RW_INTERLEAVED);
-    snd_pcm_hw_params_set_format(pcm, hw, SND_PCM_FORMAT_S16_LE);
+    if ((err = snd_pcm_hw_params_set_format(pcm, hw, fl ? SND_PCM_FORMAT_FLOAT_LE : SND_PCM_FORMAT_S16_LE)) < 0) {
+        printf("alsa-test: format not accepted: %s\n", snd_strerror(err));
+        return 4;
+    }
     snd_pcm_hw_params_set_rate_near(pcm, hw, &rate, NULL);
     snd_pcm_hw_params_set_channels(pcm, hw, 2);
     snd_pcm_hw_params_set_period_time_near(pcm, hw, &period_us, NULL);
@@ -60,6 +65,7 @@ int main(int argc, char **argv) {
     printf("alsa-test: %u Hz, buffer %lu, period %lu frames\n", rate, (unsigned long)buf, (unsigned long)per);
     long total = (long)(secs * rate), done = 0, xruns = 0, phase = 0;
     short *chunk = malloc(buf * 4);
+    float *fchunk = malloc(buf * 8);
     double t0 = now();
     while (done < total) {
         snd_pcm_sframes_t avail = snd_pcm_avail_update(pcm);
@@ -73,10 +79,11 @@ int main(int argc, char **argv) {
             long n = avail;
             if (n > total - done) n = total - done;
             for (long i = 0; i < n; i++, phase++) {
-                short v = (short)(12000 * sin(2 * M_PI * freq * phase / rate));
-                chunk[2 * i] = chunk[2 * i + 1] = v;
+                double x = sin(2 * M_PI * freq * phase / rate);
+                chunk[2 * i] = chunk[2 * i + 1] = (short)(12000 * x);
+                fchunk[2 * i] = fchunk[2 * i + 1] = (float)(12000.0 / 32767.0 * x);
             }
-            snd_pcm_sframes_t w = snd_pcm_writei(pcm, chunk, n);
+            snd_pcm_sframes_t w = fl ? snd_pcm_writei(pcm, fchunk, n) : snd_pcm_writei(pcm, chunk, n);
             if (w == -EAGAIN) w = 0;
             if (w < 0) { snd_pcm_recover(pcm, w, 1); w = 0; }
             done += w;

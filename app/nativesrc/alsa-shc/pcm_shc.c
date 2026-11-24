@@ -9,6 +9,9 @@
  *   pcm_type.shc { lib "/data/user/0/<pkg>/files/audio/libasound_module_pcm_shc.so" }
  *   pcm.!default { type shc socket "@shc-audio-1234" }      # '@' = abstract socket name, else a file path
  *
+ * Input formats: 16-bit signed and 32-bit float (Wine's DirectSound always opens the device with float); float is
+ * converted to 16-bit (clipped) before it is sent.
+ *
  * Protocol on the socket: the plugin sends a 16-byte header ("SHC1", rate, channels, bits=16; little-endian u32) and
  * then interleaved signed 16-bit little-endian PCM. The app answers with little-endian u64 counters: the total number
  * of frames it has accepted into the Android output so far. Those counters are this PCM's hardware position, so the
@@ -38,7 +41,10 @@ typedef struct {
     char *socket_name;
     int fd;                      /* connection to the app, -1 when not connected */
     int dummy[2];                /* pipe whose write end is the poll descriptor (always writable) */
-    unsigned rate, channels, frame_bytes;
+    unsigned rate, channels, frame_bytes;   /* frame_bytes: of the input format */
+    int in_float;
+    short *conv;                 /* float -> 16-bit conversion buffer */
+    size_t conv_frames;
     unsigned conn_rate, conn_channels;
     uint64_t sent;               /* frames sent on this connection */
     uint64_t acked;              /* frames the app has accepted on this connection (its last counter) */
@@ -172,7 +178,21 @@ static snd_pcm_sframes_t shc_transfer(snd_pcm_ioplug_t *io, const snd_pcm_channe
     shc_t *s = io->private_data;
     if (s->fd >= 0) {
         const char *buf = (const char *)areas->addr + (areas->first + areas->step * offset) / 8;
-        size_t left = size * s->frame_bytes;
+        size_t left = size * s->channels * 2;
+        if (s->in_float) {
+            if (s->conv_frames < size) {
+                short *c = realloc(s->conv, size * s->channels * sizeof(short));
+                if (!c) return -ENOMEM;
+                s->conv = c;
+                s->conv_frames = size;
+            }
+            const float *f = (const float *)buf;
+            for (size_t i = 0; i < size * s->channels; i++) {
+                float v = f[i] * 32767.0f;
+                s->conv[i] = v >= 32767.0f ? 32767 : v <= -32768.0f ? -32768 : (short)(v >= 0 ? v + 0.5f : v - 0.5f);
+            }
+            buf = (const char *)s->conv;
+        }
         while (left > 0) {
             ssize_t w = send(s->fd, buf, left, MSG_NOSIGNAL);
             if (w < 0) {
@@ -224,9 +244,10 @@ static int shc_hw_params(snd_pcm_ioplug_t *io, snd_pcm_hw_params_t *params) {
     (void)params;
     s->rate = io->rate;
     s->channels = io->channels;
-    s->frame_bytes = io->channels * 2;
-    dbg(s, "hw_params: %u Hz, %u channels, buffer %lu, period %lu frames", io->rate, io->channels,
-        (unsigned long)io->buffer_size, (unsigned long)io->period_size);
+    s->in_float = io->format == SND_PCM_FORMAT_FLOAT_LE;
+    s->frame_bytes = io->channels * (s->in_float ? 4 : 2);
+    dbg(s, "hw_params: %u Hz, %u channels, %s, buffer %lu, period %lu frames", io->rate, io->channels,
+        s->in_float ? "float" : "16-bit", (unsigned long)io->buffer_size, (unsigned long)io->period_size);
     return 0;
 }
 
@@ -243,6 +264,7 @@ static int shc_close(snd_pcm_ioplug_t *io) {
     close(s->dummy[0]);
     close(s->dummy[1]);
     free(s->socket_name);
+    free(s->conv);
     free(s);
     return 0;
 }
@@ -260,10 +282,10 @@ static const snd_pcm_ioplug_callback_t shc_callback = {
 
 static int set_constraints(snd_pcm_ioplug_t *io) {
     static const unsigned int access[] = {SND_PCM_ACCESS_RW_INTERLEAVED};
-    static const unsigned int formats[] = {SND_PCM_FORMAT_S16_LE};
+    static const unsigned int formats[] = {SND_PCM_FORMAT_S16_LE, SND_PCM_FORMAT_FLOAT_LE};
     int err;
     if ((err = snd_pcm_ioplug_set_param_list(io, SND_PCM_IOPLUG_HW_ACCESS, 1, access)) < 0) return err;
-    if ((err = snd_pcm_ioplug_set_param_list(io, SND_PCM_IOPLUG_HW_FORMAT, 1, formats)) < 0) return err;
+    if ((err = snd_pcm_ioplug_set_param_list(io, SND_PCM_IOPLUG_HW_FORMAT, 2, formats)) < 0) return err;
     if ((err = snd_pcm_ioplug_set_param_minmax(io, SND_PCM_IOPLUG_HW_CHANNELS, 1, 2)) < 0) return err;
     if ((err = snd_pcm_ioplug_set_param_minmax(io, SND_PCM_IOPLUG_HW_RATE, 8000, 48000)) < 0) return err;
     if ((err = snd_pcm_ioplug_set_param_minmax(io, SND_PCM_IOPLUG_HW_PERIOD_BYTES, 64, 256 * 1024)) < 0) return err;
