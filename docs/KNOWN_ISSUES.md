@@ -64,7 +64,8 @@
   known yet; the 0.3.7 report's exit analysis is meant to show it. 0.3.7 is not yet run on the phone.
 * 0.3.8 on the phone: the real game reached its "Enter Your Title" menu (no input in the launch test).
 * 0.4.0 on the phone: menu reached, cursor and keys work, taps did not click (press/release sent together).
-  0.4.1 holds each click 120 ms and adds a Right toggle; CI-verified under Wine, not yet on the phone.
+  0.4.1 holds each click 120 ms and adds a Right toggle: playable on the phone (menus, unit selection and orders,
+  building). Comfort of the controls in long play is being evaluated by an experienced player.
 * cnc-ddraw ignores mouse buttons while its cursor lock is off; if the lock is ever lost, the first click only
   re-locks it (a second tap then works).
 * No sound: Wine's ALSA driver cannot open sound devices on Android (apps have no /dev/snd access). Needs an audio
