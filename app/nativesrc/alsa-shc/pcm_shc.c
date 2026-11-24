@@ -55,6 +55,7 @@ typedef struct {
     struct timespec clock_t0;
     int clock_running;
     int debug;
+    unsigned long held_back;     /* times the hold-back kept Wine from seeing an empty device (diagnostics) */
 } shc_t;
 
 static void dbg(shc_t *s, const char *fmt, ...) {
@@ -152,7 +153,15 @@ static uint64_t clock_now(shc_t *s) {
     return s->clock_frames + (uint64_t)(sec * s->rate);
 }
 
-/* Frames played (accepted by the app, or by the clock) since the last prepare, never past what was written. */
+/*
+ * Frames played (accepted by the app, or by the clock) since the last prepare.
+ *
+ * While the stream runs, the last period written is never reported as played. The app accepts audio into Android's
+ * output buffer (>= 100 ms) as soon as it arrives, so without this hold-back a writer that is a little late (Wine's
+ * audio thread on a busy phone) would find ALSA empty, and Wine then inserts a period of silence before its data
+ * (winealsa alsa_write_data "lead-in"): heard as a slight stutter in 0.5.0, although Android never ran dry. Draining
+ * and stopped streams are reported in full.
+ */
 static uint64_t played(shc_t *s) {
     uint64_t appl = s->io.appl_ptr;          /* frames written since prepare (ioplug's application pointer) */
     uint64_t p;
@@ -161,7 +170,13 @@ static uint64_t played(shc_t *s) {
     }
     if (s->fd >= 0) p = s->acked > s->base ? s->acked - s->base : 0;
     else p = clock_now(s);
-    return p < appl ? p : appl;
+    uint64_t limit = appl;
+    if (s->io.state == SND_PCM_STATE_RUNNING) {
+        uint64_t hold = s->io.period_size;
+        limit = appl > hold ? appl - hold : 0;
+        if (p > limit) s->held_back++;
+    }
+    return p < limit ? p : limit;
 }
 
 /*
@@ -260,6 +275,7 @@ static int shc_delay(snd_pcm_ioplug_t *io, snd_pcm_sframes_t *delayp) {
 
 static int shc_close(snd_pcm_ioplug_t *io) {
     shc_t *s = io->private_data;
+    dbg(s, "closing; position held back %lu times (writer late, Android output still had audio)", s->held_back);
     disconnect(s, "closed");
     close(s->dummy[0]);
     close(s->dummy[1]);

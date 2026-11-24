@@ -1,5 +1,19 @@
 # Release notes
 
+## 0.5.1 — smoother game sound (fix of a slight stutter in 0.5.0)
+
+* Device result of 0.5.0 (owner): music and effects play with no lag; touch controls unchanged; a very slight
+  stutter. The Report showed Android's output never ran dry (0 underruns, 160 ms buffer, 30 s played).
+* Cause: Wine inserts a period of silence (about 10 ms) whenever it finds nothing left in its ALSA device
+  (winealsa `alsa_write_data` lead-in). The plugin reported audio as played as soon as Android's output accepted it, so
+  when Wine's audio thread was a little late on the busy phone, the device looked empty although Android still had up
+  to 160 ms of sound queued, and Wine added silence. Reproduced in a test (late writer + Wine's rule: 24 gaps in 5 s).
+* Fix (plugin only): while the stream runs, the last period written is not reported as played, so Wine never sees an
+  empty device while Android still plays; with the same late writer: 0 gaps.
+* Nothing else changed: touch controls, display, launch path, runtime r6 files, sound settings.
+* CI: a regression test runs the plugin with the app's receiver (on time, late writer, two streams, no app).
+* 0.5.0 must be uninstalled first (debug key of each build differs).
+
 ## 0.5.0 — game sound (test build; touch controls unchanged from 0.4.1)
 
 * Device result of 0.4.1 (owner): playable — menus, starting a game, unit selection by tap and drag, move orders,

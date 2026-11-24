@@ -2,7 +2,9 @@
  * Drives ALSA the way Wine's winealsa does (non-blocking open of "default", S16 stereo 48 kHz, ~10 ms periods, 4-period
  * buffer, start threshold 1, stop threshold = buffer, writes every 10 ms what avail allows, XRUN recovery) and plays a
  * tone for <seconds>. Prints how long it took: with a working plugin the elapsed time follows the output's real rate.
- * Usage: alsa-client-test <seconds> <frequency> [float]
+ * With "late": every ~0.5 s one write comes 80 ms late (a busy CPU), and Wine's lead-in rule is applied (winealsa
+ * alsa_write_data: when nothing is left in ALSA it writes a period of silence first); lead-ins are counted.
+ * Usage: alsa-client-test <seconds> <frequency> [float|s16] [late]
  */
 #include <alsa/asoundlib.h>
 #include <math.h>
@@ -21,6 +23,8 @@ int main(int argc, char **argv) {
     double secs = argc > 1 ? atof(argv[1]) : 3;
     double freq = argc > 2 ? atof(argv[2]) : 440;
     int fl = argc > 3 && !strcmp(argv[3], "float");
+    int late = argc > 4 && !strcmp(argv[4], "late");
+    long leadins = 0, iter = 0;
     snd_pcm_t *pcm;
     int err;
     if ((err = snd_pcm_open(&pcm, "default", SND_PCM_STREAM_PLAYBACK, SND_PCM_NONBLOCK)) < 0) {
@@ -75,6 +79,13 @@ int main(int argc, char **argv) {
             snd_pcm_prepare(pcm);
             avail = buf;
         }
+        if (late && avail >= (snd_pcm_sframes_t)buf && done > 0) {
+            /* Wine: no data left in ALSA -> a period of silence first */
+            memset(chunk, 0, per * 4);
+            memset(fchunk, 0, per * 8);
+            snd_pcm_sframes_t z = fl ? snd_pcm_writei(pcm, fchunk, per) : snd_pcm_writei(pcm, chunk, per);
+            if (z > 0) { leadins++; avail -= z; }
+        }
         if (avail > 0) {
             long n = avail;
             if (n > total - done) n = total - done;
@@ -89,13 +100,14 @@ int main(int argc, char **argv) {
             done += w;
             phase -= n - w;
         }
-        struct timespec ts = {0, 10 * 1000 * 1000};
+        struct timespec ts = {0, (late && ++iter % 50 == 0 ? 90 : 10) * 1000 * 1000};
         nanosleep(&ts, NULL);
     }
     snd_pcm_sframes_t delay = 0;
     snd_pcm_delay(pcm, &delay);
     double el = now() - t0;
-    printf("alsa-test: wrote %ld frames (%.2f s of audio) in %.2f s, delay %ld frames, xruns %ld\n", done, (double)done / rate, el, (long)delay, xruns);
+    printf("alsa-test: wrote %ld frames (%.2f s of audio) in %.2f s, delay %ld frames, xruns %ld, Wine-style silent lead-ins %ld\n",
+           done, (double)done / rate, el, (long)delay, xruns, leadins);
     snd_pcm_close(pcm);
     return 0;
 }

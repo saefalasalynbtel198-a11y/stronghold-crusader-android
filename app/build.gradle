@@ -3,8 +3,8 @@ plugins {
 }
 
 // Version is defined once here; CI and release workflows read it via `gradle -q printVersion`.
-def appVersionName = '0.5.0'
-def appVersionCode = 19
+def appVersionName = '0.5.1'
+def appVersionCode = 20
 
 android {
     // Windows test programs built by CI with mingw-w64 (app/winsrc, see .github/workflows/android-build.yml);
