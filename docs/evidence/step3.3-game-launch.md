@@ -116,3 +116,30 @@ Changes in 0.3.7 (runtime r6 unchanged):
 CI cannot reproduce the noexec error (qemu-user maps PROT_EXEC to PROT_READ on the host). CI checks the copy (SHA-256,
 reuse, re-verification, source unchanged), the launch from the private copy, and that the relay trace shows the
 stand-in's ExitProcess(42) under Box64/WoW64. Whether the real game now runs can only be seen on the phone.
+
+## Device result of 0.3.7: DirectDraw pre-check regression, fixed in 0.3.8
+
+Owner's reports (0.3.7, GOG 2012 build and DRM-free 2018 build): Xvfb, prefix, private copy, cnc-ddraw in syswow64
+(SHA-256 OK) and the pixel check fine; `DirectDraw pre-check FAILED (exit 42 ... Wine: NO native load of ddraw.dll in the
+log)`; the game was not started. Same result for both builds: the game build is not involved (the game never ran).
+
+Cause, from the code (0.3.6 → 0.3.7 diff):
+* `WineLaunchPlan.WINEDEBUG` changed from `err+all,fixme-all,+loaddll` (0.3.6, pre-check PASS on the phone) to
+  `err+all,fixme-all,+loaddll,+seh,+relay`, and the pre-check runs with the same environment (`plan.env`).
+* `reg add ...RelayInclude` ran with that environment too, i.e. under an unfiltered relay trace itself, limited to
+  120 s by `run(...)`. Without a filter, +relay traces every exported call: the pre-check's message loop
+  (PeekMessage/Sleep/GetTickCount, 20 times a second, plus every startup call).
+* The verdict read only `tail(pcLog, 2_000_000)`. The `Loaded L"C:\\windows\\system32\\ddraw.dll" ...: native` line is
+  written when the program calls LoadLibrary at its start, so a log over 2 MB hides it.
+* Exit 42 itself proves the program loaded a ddraw.dll, created DirectDraw, set 1024×768×16, created the primary
+  surface and wrote frames; with `ddraw=n` only the native DLL (cnc-ddraw) can load. The failure was in the proof.
+* CI did not catch it: DisplayCli read the whole log, and its reg.exe call did not even get the plan's environment
+  (no WINEPREFIX), so CI also ran unfiltered and still passed.
+
+0.3.8: pre-check with `WINEDEBUG_PRECHECK = err+all,fixme-all,+loaddll`; reg.exe with `err+all,fixme-all` and the
+plan's prefix, 600 s, exit code checked; the game gets `+relay` only when the filter was set (otherwise
+`err+all,fixme-all,+loaddll,+seh`). core/DdrawPrecheck streams the whole log and requires exit 42, the native
++loaddll line, the program's `ddraw.dll = ...\system32\ddraw.dll`, `SetDisplayMode(1024,768,16) 0x00000000`,
+`CreateSurface(primary) 0x00000000`, frames written > 0, and the four colours. App and CI use this same class. CI
+also re-runs the 0.3.7 situation once (pre-check under +relay without filter) and reports the log size, the line
+number of the load line, and what the 0.3.7 2 MB check and the whole-log check find.

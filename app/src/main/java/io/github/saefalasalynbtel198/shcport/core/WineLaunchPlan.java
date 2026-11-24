@@ -29,6 +29,16 @@ public final class WineLaunchPlan {
      * {@link #RELAY_INCLUDE} (Wine traces only those, set in the prefix's registry by {@link #relayArgv}).
      */
     public static final String WINEDEBUG = "err+all,fixme-all,+loaddll,+seh,+relay";
+    /**
+     * The DirectDraw pre-check: exactly the 0.3.6 setting that passed on the owner's phone. No +relay: an unfiltered
+     * relay trace of the pre-check's message loop pushed the +loaddll line out of the part of the log that was read
+     * (0.3.7 device result).
+     */
+    public static final String WINEDEBUG_PRECHECK = "err+all,fixme-all,+loaddll";
+    /** The game when the relay filter could not be set: no +relay (it would trace every call). */
+    public static final String WINEDEBUG_NO_RELAY = "err+all,fixme-all,+loaddll,+seh";
+    /** Helper programs such as reg.exe: errors only (they must not run under +relay before the filter exists). */
+    public static final String WINEDEBUG_TOOL = "err+all,fixme-all";
     /** Functions traced by +relay: how and why the game ends, its windows, message boxes, files and processes. */
     public static final String RELAY_INCLUDE = "ExitProcess;TerminateProcess;MessageBoxA;MessageBoxW;MessageBoxExA;MessageBoxExW;"
             + "CreateWindowExA;CreateWindowExW;ShowWindow;CreateFileA;CreateFileW;CreateProcessA;CreateProcessW;WinExec;"
@@ -103,6 +113,13 @@ public final class WineLaunchPlan {
             if (!nativeOnly || low.endsWith(": native")) return l.trim();
         }
         return null;
+    }
+
+    /** The same environment with another WINEDEBUG value. */
+    public Map<String, String> envWith(String winedebug) {
+        Map<String, String> e = new LinkedHashMap<>(env);
+        e.put("WINEDEBUG", winedebug);
+        return Collections.unmodifiableMap(e);
     }
 
     /** reg.exe command that limits +relay to {@link #RELAY_INCLUDE} (HKCU\Software\Wine\Debug, RelayInclude). */

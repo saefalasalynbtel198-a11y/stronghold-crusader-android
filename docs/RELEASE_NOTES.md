@@ -1,5 +1,19 @@
 # Release notes
 
+## 0.3.8 — fix of the DirectDraw pre-check regression of 0.3.7 (development build, not yet a playable game)
+
+* Device result of 0.3.7 (owner, two builds: GOG 2012 and DRM-free 2018): `DirectDraw pre-check FAILED — exit 42`,
+  pixels OK, "NO native load of ddraw.dll in the log"; the game was not started.
+* Cause (regression of 0.3.7, not the game build): 0.3.7 added `+seh,+relay` to the Wine debug setting shared by the
+  pre-check, and ran `reg add RelayInclude` (the relay filter) under that same setting with a 120 s limit. With an
+  unfiltered relay trace the pre-check log grows far beyond 2 MB, and the app looked for Wine's `ddraw.dll ... native`
+  line only in the last 2 MB. Exit 42 and the colours show the test itself had worked.
+* Fix: the pre-check uses the 0.3.6 setting again (`err+all,fixme-all,+loaddll`, device PASS in 0.3.6); reg.exe runs
+  without +relay (up to 600 s, exit code checked); the game gets +relay only if the filter was set. The verdict reads
+  the whole log and additionally requires the test program's own report (ddraw.dll from the 32-bit system directory,
+  SetDisplayMode and CreateSurface(primary) = 0x00000000, frames written). The report lists that evidence.
+* No runtime change (r6). Start Game stays disabled. 0.3.7 must be uninstalled first (debug key of each build differs).
+
 ## 0.3.7 — fix attempt for the real-game launch failure of 0.3.6 (development build, not yet a playable game)
 
 * Device report of 0.3.6 (owner, Xiaomi 25053PC47G, Android 16): DirectDraw pre-check PASS; the real game exited after

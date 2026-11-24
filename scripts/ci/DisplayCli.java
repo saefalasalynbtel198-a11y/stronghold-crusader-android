@@ -298,14 +298,24 @@ public final class DisplayCli {
         System.out.print(sr.report);
         System.out.println("check setup: " + (sr.ok ? "PASS" : "FAIL"));
         if (!sr.ok) return 1;
-        Process reg = new ProcessBuilder(plan.relayArgv()).directory(rt.root).redirectErrorStream(true)
-                .redirectOutput(new File(logs, "relay-reg.log")).start();
-        reg.getOutputStream().close();
-        boolean regDone = reg.waitFor(30, java.util.concurrent.TimeUnit.MINUTES);
-        System.out.println("relay filter (reg add RelayInclude): exit " + (regDone ? reg.exitValue() : -1));
-        // 1. the app's DirectDraw pre-check: runtime program by Unix path, cwd = runtime
-        bad += ddrawRun("precheck", plan.argvFor(rt.guiSmoke().getPath(), Arrays.asList("ddraw", "10")), rt.root, plan.env,
-                fb, new File(logs, "precheck.log"));
+        List<String> pcArgv = plan.argvFor(rt.guiSmoke().getPath(), Arrays.asList("ddraw", "10"));
+        // 0. reproduction of the 0.3.7 device failure: the pre-check under the game's +relay with no relay filter
+        //    (as on the phone, where reg.exe ran under +relay itself and did not finish in 120 s), judged both ways
+        File repro = new File(logs, "precheck-0.3.7-repro.log");
+        int rc = runTo(pcArgv, rt.root, plan.env, repro, 25);
+        String old = io.github.saefalasalynbtel198.shcport.core.WineLaunchPlan.loadLine(tailOf(repro, 2_000_000), "ddraw.dll", true);
+        io.github.saefalasalynbtel198.shcport.core.DdrawPrecheck rr = io.github.saefalasalynbtel198.shcport.core.DdrawPrecheck.evaluate(repro, rc, true, "not checked");
+        System.out.println("repro 0.3.7 (+relay without filter): exit " + rc + ", log " + repro.length() + " bytes, " + rr.logLines
+                + " lines; ddraw.dll load line at line " + rr.loadLineNumber + " (" + (rr.nativeLoad ? "native" : "none/not native") + ")");
+        System.out.println("repro 0.3.7 detection (last 2 MB of the log): " + (old != null ? "native load found" : "NO native load of ddraw.dll in the log"));
+        System.out.println("repro whole-log detection: " + (rr.nativeLoad ? "native load found: " + rr.loadLine : "none"));
+        // 1. relay filter: reg.exe without +relay and with the plan's prefix (as the app does now)
+        File regLog = new File(logs, "relay-reg.log");
+        int regRc = runTo(plan.relayArgv(), rt.root, plan.envWith(io.github.saefalasalynbtel198.shcport.core.WineLaunchPlan.WINEDEBUG_TOOL), regLog, 30);
+        System.out.println("check relay filter set (reg add RelayInclude, no +relay, plan's WINEPREFIX): " + (regRc == 0 ? "PASS" : "FAIL (exit " + regRc + ")"));
+        if (regRc != 0) bad++;
+        // 2. the app's DirectDraw pre-check: runtime program by Unix path, cwd = runtime, 0.3.6 WINEDEBUG
+        bad += ddrawRun("precheck", pcArgv, rt.root, plan.envWith(io.github.saefalasalynbtel198.shcport.core.WineLaunchPlan.WINEDEBUG_PRECHECK), fb, new File(logs, "precheck.log"));
         // 2. the "game": D:\<exe>, cwd = game folder
         System.out.println("game argv: " + quoted(plan.argv) + " cwd " + plan.workingDirectory);
         bad += ddrawRun("game", plan.argv, plan.workingDirectory, plan.env, fb, new File(logs, "game.log"));
@@ -358,18 +368,38 @@ public final class DisplayCli {
             if (System.currentTimeMillis() - t0 > 40 * 60_000L) { p.destroyForcibly(); break; }
         }
         int code = p.isAlive() ? -1 : p.exitValue();
-        String out = new String(java.nio.file.Files.readAllBytes(log.toPath()), java.nio.charset.StandardCharsets.UTF_8);
-        String loaded = "";
-        for (String l : out.split("\n")) if (l.contains("gui-smoke: ddraw.dll = ")) loaded = l.substring(l.indexOf('=') + 1).trim();
-        String nativeLine = io.github.saefalasalynbtel198.shcport.core.WineLaunchPlan.loadLine(out, "ddraw.dll", true);
-        System.out.println(label + " ddraw.dll load: " + io.github.saefalasalynbtel198.shcport.core.WineLaunchPlan.loadLine(out, "ddraw.dll", false));
-        boolean ok = code == 42 && pixels != null && nativeLine != null;
-        System.out.println("check " + label + ": " + (ok ? "PASS" : "FAIL") + " (exit " + code + ", "
-                + (System.currentTimeMillis() - t0) / 1000 + " s, ddraw.dll = " + loaded + ", pixels " + (pixels == null ? "not seen" : "OK: " + pixels) + ")");
+        io.github.saefalasalynbtel198.shcport.core.DdrawPrecheck r = io.github.saefalasalynbtel198.shcport.core.DdrawPrecheck
+                .evaluate(log, code, pixels != null, pixels == null ? null : "OK: " + pixels);   // the app's verdict
+        boolean ok = r.ok;
+        System.out.println("check " + label + ": " + r.summary() + " [" + (System.currentTimeMillis() - t0) / 1000 + " s]");
+        for (String d : r.details()) System.out.println("  " + label + " | " + d);
         if (!ok) {
-            String[] lines = out.split("\n");
+            String[] lines = new String(java.nio.file.Files.readAllBytes(log.toPath()), java.nio.charset.StandardCharsets.UTF_8).split("\n");
             for (int i = Math.max(0, lines.length - 30); i < lines.length; i++) System.out.println("  | " + lines[i]);
         }
         return ok ? 0 : 1;
+    }
+
+    /** Runs a command with env (stdin closed, output to log), at most maxMinutes; exit code or -1. */
+    private static int runTo(List<String> argv, File cwd, Map<String, String> env, File log, int maxMinutes) throws Exception {
+        ProcessBuilder pb = new ProcessBuilder(argv).directory(cwd).redirectErrorStream(true).redirectOutput(log);
+        pb.environment().remove("LD_LIBRARY_PATH");
+        pb.environment().putAll(env);
+        Process p = pb.start();
+        p.getOutputStream().close();
+        if (!p.waitFor(maxMinutes, java.util.concurrent.TimeUnit.MINUTES)) { p.destroyForcibly(); p.waitFor(); return -1; }
+        return p.exitValue();
+    }
+
+    /** Last max bytes of a file, as the 0.3.7 app read the pre-check log. */
+    private static String tailOf(File f, int max) throws Exception {
+        try (RandomAccessFile raf = new RandomAccessFile(f, "r")) {
+            long len = raf.length();
+            int n = (int) Math.min(len, max);
+            byte[] b = new byte[n];
+            raf.seek(len - n);
+            raf.readFully(b);
+            return new String(b, java.nio.charset.StandardCharsets.UTF_8);
+        }
     }
 }
