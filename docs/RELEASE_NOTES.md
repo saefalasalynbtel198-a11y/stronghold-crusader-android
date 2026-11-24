@@ -1,5 +1,25 @@
 # Release notes
 
+## 0.4.0 — Start Game: playable game screen with touch and keyboard input (development build)
+
+* Device result of 0.3.8 (owner, Xiaomi 25053PC47G, Android 16, DRM-free 2018 build): DirectDraw pre-check PASS
+  (native cnc-ddraw, CreateSurface OK); the real Stronghold Crusader ran from the private copy, showed its loading
+  screen and reached the "Enter Your Title" menu (9 Wine processes, ~700 MB). It could not be controlled.
+* **Start Game** on the main screen is enabled when the runtime (r6: Xvfb, cnc-ddraw, DirectDraw check), the imported
+  game (an allowed executable) and internal storage for the private copy are present. It opens the new game screen.
+* Game screen: the same launch path as the device-verified game launch test (private SHA-256-verified copy, Wine
+  prefix, Xvfb, cnc-ddraw GDI, `D:\<exe>`), without its diagnostic extras (no relay trace, no snapshots; the DirectDraw
+  pre-check runs until it has passed once for this runtime, cnc-ddraw and app version). Full screen, 4:3 kept
+  (letterboxed).
+* Input: a small X11 client in the app sends XTEST events to Xvfb; Wine passes them to the game as Windows mouse and
+  keyboard messages. Tap = left click, long press = right click, drag = left drag, two-finger drag = arrow keys
+  (scroll), pinch = wheel (the existing, unit-tested touch mapper with the renderer's letterbox geometry). Side keys:
+  Esc, Enter, Space, Keys (soft keyboard; typed text goes to the game), Report, Exit. Hardware keyboards work.
+* Session: one game at a time (a second Start Game returns to it); the game keeps running while the screen is paused;
+  Exit Game stops Wine and Xvfb; an ended game shows why and offers Start again.
+* Not included: sound (Android does not let apps open ALSA devices; Wine needs another audio backend in the runtime).
+* No runtime change (r6). 0.3.8 must be uninstalled first (debug key of each build differs).
+
 ## 0.3.8 — fix of the DirectDraw pre-check regression of 0.3.7 (development build, not yet a playable game)
 
 * Device result of 0.3.7 (owner, two builds: GOG 2012 and DRM-free 2018): `DirectDraw pre-check FAILED — exit 42`,

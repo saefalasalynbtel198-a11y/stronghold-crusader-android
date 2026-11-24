@@ -29,6 +29,7 @@ import io.github.saefalasalynbtel198.shcport.core.XvfbStarter;
  *   prefix-init <runtime> <prefix> <tmp> [--no-parent]: the display test's prefix stage (WinePrefixSetup +
  *     WineTestPlan.prefixInitSteps, run with ProcessBuilder like the app); --no-parent = as 0.3.2-0.3.4 (no mkdirs)
  *   wine-env <runtime> <prefix> <tmp> <display> | wine-argv <runtime> <exe> | check <framebuffer file>
+ *   input <display> <bridge.py>: the app's X11 input client (XTEST) against the running Xvfb
  */
 public final class DisplayCli {
     public static void main(String[] a) throws Exception {
@@ -41,6 +42,9 @@ public final class DisplayCli {
                 break;
             case "prefix-init":    // prefix-init <runtime> <prefix> <tmp> [--no-parent]
                 System.exit(prefixInit(a));
+                break;
+            case "input":          // input <display> <bridge.py>: XTEST through the app's X11Input against Xvfb
+                System.exit(input(Integer.parseInt(a[1]), a[2]));
                 break;
             case "game-launch":    // game-launch <runtime> <prefix> <gamedir> <exe> <tmp> <display> <fbfile> <logdir>
                 System.exit(gameLaunch(a));
@@ -266,6 +270,84 @@ public final class DisplayCli {
         int from = Math.max(0, lines.length - 25);
         for (int i = from; i < lines.length; i++) if (!lines[i].isEmpty()) System.out.println("  | " + lines[i]);
         return done ? p.exitValue() : -1;
+    }
+
+    /**
+     * The app's input path against the real Xvfb: connection setup, XTEST, keymap, then a click, a right click, a drag,
+     * the wheel and keys as the game screen sends them. Checks what the X server reports (QueryPointer/QueryKeymap);
+     * the Windows side (the test program's "input" lines) is checked by the script.
+     */
+    private static int input(int display, String bridge) throws Exception {
+        Process p = new ProcessBuilder("python3", "-I", bridge, String.valueOf(display)).redirectError(ProcessBuilder.Redirect.INHERIT).start();
+        int bad = 0;
+        try (io.github.saefalasalynbtel198.shcport.core.X11Input x = io.github.saefalasalynbtel198.shcport.core.X11Input
+                .connect(p.getInputStream(), p.getOutputStream())) {
+            System.out.println("x11 input: root 0x" + Integer.toHexString(x.root) + ", screen " + x.screenWidth + "x" + x.screenHeight
+                    + ", XTEST opcode " + x.xtestOpcode + ", keycodes " + x.minKeycode + ".." + x.maxKeycode
+                    + ", Escape=" + x.keycodeOf(0xff1b) + " Return=" + x.keycodeOf(0xff0d) + " a=" + x.keycodeOf('a'));
+            boolean keymap = x.keycodeOf(0xff1b) != 0 && x.keycodeOf(0xff0d) != 0 && x.keycodeOf('a') != 0 && x.keycodeOf(0xff51) != 0;
+            System.out.println("check keymap has Escape, Return, letters, arrows: " + (keymap ? "PASS" : "FAIL"));
+            if (!keymap) bad++;
+            // touch path: a tap in the middle of the owner's 1786x1228 view → mapper → X11
+            io.github.saefalasalynbtel198.shcport.core.ViewportTransform vt =
+                    new io.github.saefalasalynbtel198.shcport.core.ViewportTransform(1024, 768, 1786, 1228);
+            io.github.saefalasalynbtel198.shcport.core.TouchMouseMapper m = new io.github.saefalasalynbtel198.shcport.core.TouchMouseMapper(
+                    new io.github.saefalasalynbtel198.shcport.core.ControlSettings(), vt);
+            float sx = vt.offsetX + 700.5f * vt.scale, sy = vt.offsetY + 500.5f * vt.scale;
+            for (io.github.saefalasalynbtel198.shcport.core.InputAction act : m.onTouch(
+                    io.github.saefalasalynbtel198.shcport.core.TouchMouseMapper.Frame.single(
+                            io.github.saefalasalynbtel198.shcport.core.TouchMouseMapper.Action.DOWN, sx, sy, 1000))) x.send(act);
+            int[] held = x.queryPointer();
+            for (io.github.saefalasalynbtel198.shcport.core.InputAction act : m.onTouch(
+                    io.github.saefalasalynbtel198.shcport.core.TouchMouseMapper.Frame.single(
+                            io.github.saefalasalynbtel198.shcport.core.TouchMouseMapper.Action.UP, sx, sy, 1080))) x.send(act);
+            int[] tap = x.queryPointer();
+            boolean tapOk = tap[0] == 700 && tap[1] == 500 && (tap[2] & 0x100) == 0;
+            System.out.println("check tap → pointer at 700,500, button released (X server): " + (tapOk ? "PASS" : "FAIL")
+                    + " (" + tap[0] + "," + tap[1] + " mask 0x" + Integer.toHexString(tap[2]) + "; while down 0x" + Integer.toHexString(held[2]) + ")");
+            if (!tapOk) bad++;
+            Thread.sleep(1500);
+            // left drag
+            x.motion(200, 150);
+            x.button(1, true);
+            int[] d1 = x.queryPointer();
+            x.motion(320, 260);
+            int[] d2 = x.queryPointer();
+            x.button(1, false);
+            boolean drag = (d1[2] & 0x100) != 0 && d2[0] == 320 && d2[1] == 260 && (d2[2] & 0x100) != 0 && (x.queryPointer()[2] & 0x100) == 0;
+            System.out.println("check left drag 200,150 → 320,260 with Button1 held (X server): " + (drag ? "PASS" : "FAIL"));
+            if (!drag) bad++;
+            Thread.sleep(1500);
+            // right click, wheel
+            x.motion(640, 400);
+            x.button(3, true);
+            boolean right = (x.queryPointer()[2] & 0x400) != 0;
+            x.button(3, false);
+            right &= (x.queryPointer()[2] & 0x400) == 0;
+            System.out.println("check right click (Button3 held, then released): " + (right ? "PASS" : "FAIL"));
+            if (!right) bad++;
+            x.wheel(-1);
+            x.flush();
+            Thread.sleep(1500);
+            // keys: Escape, typed "a", Return
+            int esc = x.keycodeOf(0xff1b);
+            x.key(0xff1b, true);
+            boolean escDown = x.isKeyDown(esc);
+            x.key(0xff1b, false);
+            boolean escUp = !x.isKeyDown(esc);
+            boolean typed = x.type('a') && x.type('A');
+            x.key(0xff0d, true);
+            x.key(0xff0d, false);
+            x.queryPointer();
+            boolean keys = escDown && escUp && typed;
+            System.out.println("check keys: Escape pressed/released, 'a' and 'A' typed, Return (X server): " + (keys ? "PASS" : "FAIL"));
+            if (!keys) bad++;
+            System.out.println("x11 input: X errors " + x.errors + (x.errors > 0 ? " (" + x.lastError + ")" : ""));
+            if (x.errors > 0) bad++;
+        } finally {
+            p.destroy();
+        }
+        return bad == 0 ? 0 : 1;
     }
 
     private static int gameLaunch(String[] a) throws Exception {

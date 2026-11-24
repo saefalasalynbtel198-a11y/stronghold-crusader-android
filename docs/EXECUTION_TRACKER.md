@@ -15,7 +15,7 @@ Last updated: 2026-11-20 (BUILD 2 device report 2: glibc patched for Android sec
 | 5c | BUILD 3 phase 3: display, game window, touch input | IN PROGRESS | 3.0 feasibility PASS (CI). 3.1 runtime r6: device self-test PASS, Wine tests 6/6 PASS (owner, 2026-11-21). **3.2 in-app display: PASSED on the owner's phone** (app 0.3.5-dev.1, runtime r6, Xiaomi 25053PC47G Android 16, 2026-11-21: Wine prefix ready/kept, Xvfb :37, Wine window drawn, pixel check PASS, Wine content ~27 fps, pause/resume OK; Wine tests 6/6, self-test 4/4); CI evidence docs/evidence/step3.2-*.md. 3.3 game launch test: implemented, CI-tested with a stand-in game (docs/evidence/step3.3-game-launch.md) — **device test with the real game pending**. 3.4 (touch input) not started. Start Game disabled. |
 | 4 | Complete Android application (AR/EN, themes, game launch screen) | NOT STARTED | |
 | 5 | Runtime integration: display server, Wine prefix, cnc-ddraw, audio | IN PROGRESS | Wine prefix: COMPLETED (5a). Display + cnc-ddraw: 5c. Audio: phase 4. |
-| 6 | Touch controls injected into the game | NOT STARTED | Mapper done and unit-tested; injection = plan step 3.3 (XTEST) |
+| 6 | Touch controls injected into the game | IMPLEMENTED (0.4.0, CI-verified; device test pending) | X11Input (XTEST) + TouchMouseMapper; CI: clicks/drag/wheel/keys arrive as Windows messages under Wine |
 | 7–9 | APK build / automated tests / emulator tests | COMPLETED for BUILD 1 | see milestone 2 |
 | 10 | Actual game execution | BLOCKED | No legal HD 1.41 copy available; runtime display path not built |
 | 11–13 | Fixes, release, delivery | NOT STARTED | Release workflow present, not yet run |
@@ -185,6 +185,8 @@ Last updated: 2026-11-20 (BUILD 2 device report 2: glibc patched for Android sec
    0.3.7 on the device (GOG 2012 and DRM-free 2018): pre-check FAILED, exit 42, pixels OK, no native load line found
    (the 0.3.7 relay trace pushed it out of the 2 MB that was read). 0.3.8: pre-check back on the 0.3.6 setting, whole
    log read, program's own DirectDraw report required; CI-tested only.
+   0.3.8 on the device: pre-check PASS; the real game (DRM-free 2018) reached its "Enter Your Title" menu.
+   0.4.0: Start Game + game screen (same launch path, no traces), XTEST input, session lifecycle; CI-tested only.
 1. Owner: install app 0.3.5-dev.1 (keep runtime r6), Runtime → Display test → Start, check the screen, pause/resume,
    let it run a few minutes, Stop, Copy report; send the report and a phone screenshot.
 2. Agent: analyse the device report; step 3.3 (touch input) only after step 3.2 passes on the device.

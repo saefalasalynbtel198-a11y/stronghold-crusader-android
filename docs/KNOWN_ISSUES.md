@@ -62,8 +62,13 @@
   executable because the game was on Android shared storage (noexec). 0.3.7 runs it from a SHA-256-verified private
   copy in internal storage (needs internal space for the whole game folder + 256 MB). Why the game chose to exit is not
   known yet; the 0.3.7 report's exit analysis is meant to show it. 0.3.7 is not yet run on the phone.
-* Not yet seen running on a phone with the real game. No input and no sound: the game can only be watched.
-* Wine has no audio driver on Android; the game's sound libraries may fail or wait at start-up.
+* 0.3.8 on the phone: the real game reached its "Enter Your Title" menu (no input in the launch test).
+* 0.4.0 adds Start Game with touch/keyboard input (CI-verified into a Windows program under Wine; not yet on the phone).
+* No sound: Wine's ALSA driver cannot open sound devices on Android (apps have no /dev/snd access). Needs an audio
+  backend that Android allows (for example AAudio through a PulseAudio server for winepulse) in a future runtime.
+* When the app is in the background, Android may freeze or stop it (no foreground service yet); return to the game
+  through Start Game. If Android kills the app, the next start stops leftover Wine/Xvfb processes.
+* The game screen's long press = right click uses the touch settings' long-press time (Control settings).
 * Intro videos (Bink) run under Box64 and cannot be skipped yet.
 * The imported 2012 GOG build is older than 1.41 and unverified (UNKNOWN).
 * Android external storage cannot be made read-only for the game; changes are detected and reported, not prevented.

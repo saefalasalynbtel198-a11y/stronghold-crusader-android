@@ -22,7 +22,7 @@ import io.github.saefalasalynbtel198.shcport.core.X11DisplayPlan;
 
 /**
  * BUILD 3 step 3.2: shows Xvfb's real framebuffer while the Windows test program draws into it through Box64 and
- * Wine. Diagnostic screen only; Start Game stays disabled.
+ * Wine. Diagnostic screen; the game itself is played through Start Game (GameActivity).
  */
 public final class DisplayTestActivity extends Activity implements Choreographer.FrameCallback {
     private GLSurfaceView view;
@@ -39,7 +39,7 @@ public final class DisplayTestActivity extends Activity implements Choreographer
     private long framesAtResumeCheck = -1;
     static final String EXTRA_MODE = "shc.mode";
     static final String MODE_DISPLAY = "display";
-    /** BUILD 3 step 3.3: the imported game instead of the test program (diagnostic; Start Game stays disabled). */
+    /** BUILD 3 step 3.3: the imported game instead of the test program (diagnostic, with traces). */
     static final String MODE_GAME = "game";
     private boolean game;
     private boolean recovered;
@@ -63,10 +63,10 @@ public final class DisplayTestActivity extends Activity implements Choreographer
         side.addView(Ui.title(this, game ? "Game launch test" : "Display test"));
         side.addView(Ui.muted(this, game
                 ? "The imported game through Box64 → Wine → cnc-ddraw (GDI) → X11 → Xvfb → this screen, "
-                        + X11DisplayPlan.WIDTH + "×" + X11DisplayPlan.HEIGHT + ", letterboxed. No input yet (step 3.4), no sound. "
-                        + "The game files are only read and are checked before and after. Diagnostic only; Start Game stays disabled."
+                        + X11DisplayPlan.WIDTH + "×" + X11DisplayPlan.HEIGHT + ", letterboxed. Diagnostic: no input, with traces. "
+                        + "The game files are only read and are checked before and after. To play, use Start Game on the main screen."
                 : "Box64 → Wine → X11 → Xvfb → this screen. " + X11DisplayPlan.WIDTH + "×"
-                        + X11DisplayPlan.HEIGHT + ", letterboxed. Diagnostic only; Start Game stays disabled."));
+                        + X11DisplayPlan.HEIGHT + ", letterboxed. Diagnostic only."));
         start = Ui.button(this, game ? "Start game launch test" : "Start display test", v -> startTest());
         stop = Ui.button(this, game ? "Stop game" : "Stop display test", v -> stopTest());
         Button copy = Ui.button(this, "Copy report", v -> copyReport());
@@ -89,7 +89,9 @@ public final class DisplayTestActivity extends Activity implements Choreographer
     private void updateButtons() {
         boolean running = session != null && session.state != DisplayTestSession.State.STOPPED
                 && session.state != DisplayTestSession.State.FAILED;
-        start.setEnabled(!busy && !running && new RuntimeLayout(new AppPaths(this).runtimeDir()).hasX11());
+        // not while the game (Start Game) runs: both use Xvfb and Wine, and a start stops leftover processes
+        boolean playing = ((ShcApplication) getApplication()).playLife.active();
+        start.setEnabled(!busy && !running && !playing && new RuntimeLayout(new AppPaths(this).runtimeDir()).hasX11());
         stop.setEnabled(!busy && session != null && (running || session.state == DisplayTestSession.State.FAILED));
     }
 

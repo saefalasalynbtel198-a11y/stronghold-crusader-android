@@ -99,6 +99,32 @@ if [ -s "$OUT/game-ui.xml" ]; then
   grep -q "Game launch test" "$OUT/game-ui.xml" || fail "game launch test screen does not show its title"
 fi
 adb shell screencap -p /sdcard/game.png && adb pull /sdcard/game.png "$OUT/game-screen.png" > /dev/null || true
+
+# Main screen: Start Game present and disabled with its reason (no runtime and no game in the emulator)
+adb shell am start -S -W -n "$PKG/$ACT" > /dev/null
+sleep 6
+adb shell uiautomator dump /sdcard/main-ui.xml > /dev/null 2>&1 && adb pull /sdcard/main-ui.xml "$OUT/main-ui.xml" > /dev/null 2>&1 || true
+if [ -s "$OUT/main-ui.xml" ]; then
+  grep -q 'text="Start Game"' "$OUT/main-ui.xml" || fail "main screen has no Start Game button"
+  grep -o 'text="Start Game"[^>]*enabled="[a-z]*"' "$OUT/main-ui.xml" | grep -q 'enabled="false"' || fail "Start Game enabled without runtime and game"
+  grep -q "Install the runtime" "$OUT/main-ui.xml" || fail "Start Game reason not shown"
+fi
+
+# Game screen (Start Game): opens, the start fails cleanly without a runtime and says why; the app stays alive
+adb shell am start -S -W -n "$PKG/$ACT" --es shc.open play > "$OUT/am-start-play.txt"
+sleep 8
+adb shell dumpsys activity activities | grep -E "mResumedActivity|topResumedActivity|ResumedActivity" | tee "$OUT/play-resumed.txt"
+grep -q "GameActivity" "$OUT/play-resumed.txt" || fail "game screen did not open"
+app_pid > /dev/null || fail "app process died on the game screen"
+adb shell uiautomator dump /sdcard/play-ui.xml > /dev/null 2>&1 && adb pull /sdcard/play-ui.xml "$OUT/play-ui.xml" > /dev/null 2>&1 || true
+if [ -s "$OUT/play-ui.xml" ]; then
+  grep -q "runtime not installed" "$OUT/play-ui.xml" || fail "game screen does not report the missing runtime"
+  grep -q 'text="Exit"' "$OUT/play-ui.xml" || fail "game screen has no Exit key"
+fi
+adb shell screencap -p /sdcard/play.png && adb pull /sdcard/play.png "$OUT/play-screen.png" > /dev/null || true
+adb shell input keyevent KEYCODE_HOME
+sleep 3
+app_pid > /dev/null || fail "app process died after leaving the game screen"
 adb logcat -d > "$OUT/logcat.txt"
 if grep -E "FATAL EXCEPTION|ANR in $PKG" "$OUT/logcat.txt"; then
   fail "crash or ANR detected"

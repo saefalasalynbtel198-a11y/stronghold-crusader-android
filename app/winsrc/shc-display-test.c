@@ -8,6 +8,8 @@
  *   - "frame N" as text in the top-left corner
  *   - the frame number as a 16-bit strip in the bottom-left quadrant: 16 cells 16x16 px at y = 736..751,
  *     x = 16 + 20*i, bit 15 first; white = 1, black = 0 (read by the app to measure Wine's frame rate)
+ * Input it receives (mouse buttons, wheel, keys, characters; at most 200 lines) is written to stdout as
+ * "display-test: input ...", so CI can check that XTEST events from the app's X11 client reach a Windows program.
  * Runs until killed, or for [seconds] if given; exits 42. Progress goes to stdout.
  *   shc-display-test.exe [seconds]
  * Build: i686-w64-mingw32-gcc -O2 -Wall -Werror -static -o shc-display-test.exe shc-display-test.c -lgdi32
@@ -68,7 +70,26 @@ static void draw_frame(HDC dc) {
   }
 }
 
+static int g_inputs;
+
+static void input(const char *what, WPARAM wp, LPARAM lp, int pos) {
+  if (g_inputs++ >= 200) return;
+  if (pos) out("display-test: input %s %d,%d\n", what, (int)(short)LOWORD(lp), (int)(short)HIWORD(lp));
+  else out("display-test: input %s 0x%02x\n", what, (unsigned)wp);
+}
+
 static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
+  switch (msg) {
+    case WM_LBUTTONDOWN: input("WM_LBUTTONDOWN", wp, lp, 1); SetFocus(hwnd); return 0;
+    case WM_LBUTTONUP: input("WM_LBUTTONUP", wp, lp, 1); return 0;
+    case WM_RBUTTONDOWN: input("WM_RBUTTONDOWN", wp, lp, 1); return 0;
+    case WM_RBUTTONUP: input("WM_RBUTTONUP", wp, lp, 1); return 0;
+    case WM_MOUSEWHEEL: input("WM_MOUSEWHEEL", (WPARAM)(short)HIWORD(wp) & 0xffff, lp, 0); return 0;
+    case WM_KEYDOWN: input("WM_KEYDOWN", wp, lp, 0); return 0;
+    case WM_KEYUP: input("WM_KEYUP", wp, lp, 0); return 0;
+    case WM_CHAR: input("WM_CHAR", wp, lp, 0); return 0;
+    default: break;
+  }
   if (msg == WM_PAINT) {
     PAINTSTRUCT ps;
     HDC dc = BeginPaint(hwnd, &ps);

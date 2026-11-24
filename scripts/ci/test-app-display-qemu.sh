@@ -148,7 +148,21 @@ if [ "${c1:--1}" -ge 0 ] && [ "${c2:--1}" -gt "${c1:--1}" ] && [ "$b1" != "$b2" 
   result motion "PASS (frame counter $c1 -> $c2 in $((t2 - t1)) s under qemu, about $(( (c2 - c1) / (t2 - t1) )) fps; moving square moved)"
 else result motion "FAIL (counter $c1 -> $c2, band $b1 -> $b2)"; fi
 python3 -I "$repo/runtime/display/check-fb.py" "$fb/Xvfb_screen0" none "$W/display-test.png" > /dev/null 2>&1
-grep "display-test:" "$W/display-test.log" | head -8
+grep "display-test:" "$W/display-test.log" | grep -v " input " | head -8
+
+echo "== 4a. input: the app's X11 client (XTEST) -> Xvfb -> Wine -> the Windows test program"
+cli input $D "$repo/scripts/ci/x11-abstract-bridge.py" | tee "$W/input.txt"; irc=${PIPESTATUS[0]}
+sleep 20   # Wine under qemu delivers the messages with some delay
+grep "display-test: input" "$W/display-test.log" | head -40 | tee "$W/input-received.txt"
+want=("WM_LBUTTONDOWN 700,500" "WM_LBUTTONUP 700,500" "WM_LBUTTONDOWN 200,150" "WM_LBUTTONUP 320,260" "WM_RBUTTONDOWN 640,400" "WM_RBUTTONUP 640,400" "WM_MOUSEWHEEL")
+miss=""; for w in "${want[@]}"; do grep -q "input $w" "$W/input-received.txt" || miss="$miss [$w]"; done
+if [ $irc -eq 0 ] && [ -z "$miss" ]; then
+  result input-mouse "PASS (app's X11Input + TouchMouseMapper: tap at 700,500 on a 1786x1228 view, drag 200,150->320,260, right click, wheel arrived as Windows messages at those coordinates)"
+else result input-mouse "FAIL (client exit $irc; not received:$miss)"; fi
+kmiss=""; for w in "WM_KEYDOWN 0x1b" "WM_KEYUP 0x1b" "WM_CHAR 0x61" "WM_CHAR 0x41" "WM_KEYDOWN 0x0d"; do grep -q "input $w" "$W/input-received.txt" || kmiss="$kmiss [$w]"; done
+if [ $irc -eq 0 ] && [ -z "$kmiss" ]; then
+  result input-keys "PASS (Escape, typed 'a'/'A' with Shift, Return arrived as WM_KEYDOWN/WM_CHAR)"
+else result input-keys "FAIL (not received:$kmiss)"; fi
 
 timeout 120 "$box64" "$wineserver" -k > /dev/null 2>&1; wait $wpid; echo "test program exit $?"
 

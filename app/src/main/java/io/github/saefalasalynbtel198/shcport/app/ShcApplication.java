@@ -23,6 +23,10 @@ public final class ShcApplication extends Application {
 
     private AppPaths paths;
     private GameImporter importer;
+    /** The one game session (Start Game); it outlives the game screen being paused or recreated. */
+    final io.github.saefalasalynbtel198.shcport.core.SessionLifecycle playLife = new io.github.saefalasalynbtel198.shcport.core.SessionLifecycle();
+    volatile DisplayTestSession playSession;
+    volatile GameInput playInput;
 
     @Override
     public void onCreate() {

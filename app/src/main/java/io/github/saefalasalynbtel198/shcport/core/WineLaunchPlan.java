@@ -35,6 +35,8 @@ public final class WineLaunchPlan {
      * (0.3.7 device result).
      */
     public static final String WINEDEBUG_PRECHECK = "err+all,fixme-all,+loaddll";
+    /** The normal game (Start Game): errors and DLL loading only, as the pre-check that passed on the phone. */
+    public static final String WINEDEBUG_PLAY = "err+all,fixme-all,+loaddll";
     /** The game when the relay filter could not be set: no +relay (it would trace every call). */
     public static final String WINEDEBUG_NO_RELAY = "err+all,fixme-all,+loaddll,+seh";
     /** Helper programs such as reg.exe: errors only (they must not run under +relay before the filter exists). */

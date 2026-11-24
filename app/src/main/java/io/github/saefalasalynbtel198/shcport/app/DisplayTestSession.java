@@ -73,6 +73,8 @@ final class DisplayTestSession {
 
     /** BUILD 3 step 3.3: the imported game instead of the display test program. */
     final boolean game;
+    /** The normal game (Start Game), not the diagnostic launch test. */
+    final boolean play;
     volatile String pictureStatus = "-";
     private GameInstallation.Executable gameExe;
     private GameFolderManifest manifestBefore;
@@ -94,7 +96,17 @@ final class DisplayTestSession {
     }
 
     DisplayTestSession(Context context, AppPaths paths, boolean game, Listener listener) {
-        this.game = game;
+        this(context, paths, game, false, listener);
+    }
+
+    /**
+     * @param play the normal game (Start Game): the same launch path as the game launch test, without its diagnostic
+     *             extras (no relay trace, no snapshots; the DirectDraw pre-check only until it has passed once for
+     *             this runtime, cnc-ddraw and app version)
+     */
+    DisplayTestSession(Context context, AppPaths paths, boolean game, boolean play, Listener listener) {
+        this.game = game || play;
+        this.play = play;
         this.context = context.getApplicationContext();
         this.paths = paths;
         this.rt = new RuntimeLayout(paths.runtimeDir());
@@ -300,13 +312,47 @@ final class DisplayTestSession {
         setupReport = sr.report;
         log("game setup:\n" + sr.report.trim());
         if (!sr.ok) { fail("game setup failed (see the log)"); return false; }
-        // Limit Wine's relay trace to the functions that show how the game ends (WineLaunchPlan.RELAY_INCLUDE).
-        // reg.exe itself runs without +relay (the filter does not exist yet); only if it succeeds does the game get +relay.
-        String rel = run("reg add RelayInclude", plan.relayArgv(), plan.envWith(WineLaunchPlan.WINEDEBUG_TOOL), 600);
-        boolean relayFilter = rel.startsWith("reg add RelayInclude: exit 0");
-        gameEnv = relayFilter ? plan.env : plan.envWith(WineLaunchPlan.WINEDEBUG_NO_RELAY);
-        log("relay trace filter: " + rel + (relayFilter ? "" : "\n-> the game runs without +relay (WINEDEBUG=" + WineLaunchPlan.WINEDEBUG_NO_RELAY + ")"));
+        if (play) {
+            // normal game: Wine errors and DLL loading only (as the device-verified pre-check), no relay trace
+            gameEnv = plan.envWith(WineLaunchPlan.WINEDEBUG_PLAY);
+        } else {
+            // Limit Wine's relay trace to the functions that show how the game ends (WineLaunchPlan.RELAY_INCLUDE).
+            // reg.exe itself runs without +relay (the filter does not exist yet); only if it succeeds does the game get +relay.
+            String rel = run("reg add RelayInclude", plan.relayArgv(), plan.envWith(WineLaunchPlan.WINEDEBUG_TOOL), 600);
+            boolean relayFilter = rel.startsWith("reg add RelayInclude: exit 0");
+            gameEnv = relayFilter ? plan.env : plan.envWith(WineLaunchPlan.WINEDEBUG_NO_RELAY);
+            log("relay trace filter: " + rel + (relayFilter ? "" : "\n-> the game runs without +relay (WINEDEBUG=" + WineLaunchPlan.WINEDEBUG_NO_RELAY + ")"));
+        }
 
+        String key = precheckKey();
+        if (play && key.equals(readText(precheckMarker()))) {
+            precheckResult = "PASS earlier with this runtime, cnc-ddraw and app version (not repeated; the Game launch test always runs it)";
+            log("DirectDraw pre-check: " + precheckResult);
+        } else if (!precheck()) {
+            return false;
+        }
+
+        set(State.STARTING_WINE, "Starting the game: " + gameExe.name);
+        wineLog = new File(paths.logsDir(), "game-wine-" + stamp + ".log");
+        log("game command (cwd " + plan.workingDirectory + " = D:\\): " + argvForLog(plan.argv) + "; DISPLAY=" + plan.env.get("DISPLAY")
+                + ", WINEDLLOVERRIDES=" + plan.env.get("WINEDLLOVERRIDES") + ", CNC_DDRAW_CONFIG_FILE=" + plan.env.get("CNC_DDRAW_CONFIG_FILE")
+                + ", WINEDEBUG=" + gameEnv.get("WINEDEBUG"));
+        try {
+            ProcessBuilder pb = new ProcessBuilder(plan.argv).directory(plan.workingDirectory).redirectErrorStream(true)
+                    .redirectOutput(ProcessBuilder.Redirect.appendTo(wineLog));
+            pb.environment().putAll(gameEnv);
+            wine = pb.start();
+        } catch (Exception e) {
+            fail("could not start the game: " + e.getMessage());
+            return false;
+        }
+        wineStatus = "starting (Box64/Wine start-up, game loading)";
+        gameStartMs = SystemClock.uptimeMillis();
+        return true;
+    }
+
+    /** The DirectDraw pre-check (runtime's test program with the game's cnc-ddraw setup); false = failed (state set). */
+    private boolean precheck() throws InterruptedException {
         set(State.STARTING_WINE, "DirectDraw pre-check: cnc-ddraw with the runtime's test program");
         File pcLog = new File(paths.logsDir(), "game-ddraw-check-" + stamp + ".log");
         List<String> pcArgv = plan.argvFor(rt.guiSmoke().getPath(), Arrays.asList("ddraw", "10"));
@@ -338,27 +384,30 @@ final class DisplayTestSession {
         precheckDetails = String.join("\n", pcr.details());
         log("DirectDraw pre-check: " + precheckResult + "\n" + precheckDetails + "\npre-check log (last 40 lines):\n" + lastLines(tail(pcLog, 200_000), 40));
         if (!ok) { fail("DirectDraw pre-check " + precheckResult + " — the game was not started"); return false; }
-
-        set(State.STARTING_WINE, "Starting the game: " + gameExe.name);
-        wineLog = new File(paths.logsDir(), "game-wine-" + stamp + ".log");
-        log("game command (cwd " + plan.workingDirectory + " = D:\\): " + argvForLog(plan.argv) + "; DISPLAY=" + plan.env.get("DISPLAY")
-                + ", WINEDLLOVERRIDES=" + plan.env.get("WINEDLLOVERRIDES") + ", CNC_DDRAW_CONFIG_FILE=" + plan.env.get("CNC_DDRAW_CONFIG_FILE")
-                + ", WINEDEBUG=" + gameEnv.get("WINEDEBUG"));
-        try {
-            ProcessBuilder pb = new ProcessBuilder(plan.argv).directory(plan.workingDirectory).redirectErrorStream(true)
-                    .redirectOutput(ProcessBuilder.Redirect.appendTo(wineLog));
-            pb.environment().putAll(gameEnv);
-            wine = pb.start();
-        } catch (Exception e) {
-            fail("could not start the game: " + e.getMessage());
-            return false;
-        }
-        wineStatus = "starting (Box64/Wine start-up, game loading)";
-        gameStartMs = SystemClock.uptimeMillis();
+        writeText(precheckMarker(), precheckKey());
         return true;
     }
 
+    private File precheckMarker() { return new File(paths.internalRoot(), "ddraw-precheck-pass.txt"); }
+
+    /** What a passed pre-check depends on: runtime version, cnc-ddraw and test program files, app version. */
+    private String precheckKey() {
+        return readText(rt.versionFile()) + "|" + rt.cncDdraw().length() + "/" + rt.cncDdraw().lastModified() + "|"
+                + rt.guiSmoke().length() + "/" + rt.guiSmoke().lastModified() + "|" + BuildConfig.VERSION_CODE;
+    }
+
+    private static void writeText(File f, String text) {
+        try (OutputStream o = new FileOutputStream(f)) {
+            o.write(text.getBytes(StandardCharsets.UTF_8));
+        } catch (Exception ignored) {
+            // only an optimisation: the pre-check runs again next time
+        }
+    }
+
     private long gameStartMs;
+
+    /** Xvfb's display number once it runs (-1 before). */
+    int display() { return x11 == null ? -1 : x11.display; }
 
     /** The framebuffer file once Xvfb runs (null before). */
     File framebuffer() { return fbFile; }
@@ -392,7 +441,7 @@ final class DisplayTestSession {
                 pictureStatus = p + "; " + (lastProbe == null ? "first sample" : p.differsFrom(lastProbe) ? "changing" : "still")
                         + " (" + pictureChanges + " changes seen)";
                 lastProbe = p;
-                if (p.nonBlack > 0.02 && state == State.STARTING_WINE) set(State.RUNNING, "Running: game picture on screen (no input yet)");
+                if (p.nonBlack > 0.02 && state == State.STARTING_WINE) set(State.RUNNING, play ? "Running" : "Running: game picture on screen (no input yet)");
             }
             if (!ddrawNative) {
                 String l = WineLaunchPlan.loadLine(tail(wineLog, 262144), "ddraw.dll", false);
@@ -406,7 +455,7 @@ final class DisplayTestSession {
                     : ddrawNative ? "= cnc-ddraw (native)" : "= Wine builtin (unexpected)");
         }
         long secs = (now - gameStartMs) / 1000;
-        if (secs >= nextSnapshotS && snapshots.size() < 12) {
+        if (!play && secs >= nextSnapshotS && snapshots.size() < 12) {
             nextSnapshotS = nextSnapshotS < 120 ? nextSnapshotS * 2 : nextSnapshotS + 120;
             File png = new File(paths.logsDir(), String.format(Locale.ROOT, "game-%s-%04ds.png", stamp, secs));
             snapshotter.execute(() -> {
@@ -591,7 +640,8 @@ final class DisplayTestSession {
     }
 
     private String gameReport(FramebufferRenderer.Stats s, int pauses, int resumes, boolean recovered) {
-        StringBuilder r = new StringBuilder("SHC port game launch test (BUILD 3 step 3.3) — diagnostic, Start Game stays disabled\n");
+        StringBuilder r = new StringBuilder(play ? "SHC Port " + BuildConfig.VERSION_NAME + " game session (Start Game)\n"
+                : "SHC port game launch test — diagnostic\n");
         r.append("Result: ").append(state).append(error != null ? " — " + error : "").append('\n');
         r.append("Game executable: ").append(gameExe == null ? "-" : gameExe.name + " — " + gameExe.classification.support
                 + " (" + gameExe.classification.label + ")").append('\n');

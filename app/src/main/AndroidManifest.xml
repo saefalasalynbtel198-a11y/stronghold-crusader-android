@@ -42,6 +42,15 @@
             android:theme="@style/Theme.ShcPort.Fullscreen" />
 
         <activity
+            android:name=".app.GameActivity"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation|uiMode"
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:screenOrientation="sensorLandscape"
+            android:windowSoftInputMode="adjustNothing|stateHidden"
+            android:theme="@style/Theme.ShcPort.Fullscreen" />
+
+        <activity
             android:name=".app.RuntimeActivity"
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden"
             android:exported="false"
