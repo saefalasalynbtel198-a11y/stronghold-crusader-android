@@ -14,7 +14,7 @@ Verified by real gameplay on the phone with 0.4.1:
 
 Not yet verified on the device: Right toggle (right-button hold / camera interface), double tap = select all of a type,
 long press = right click in game, two-finger scroll and pinch in game, pause/resume during play, Exit + relaunch,
-extended play. No sound (see AUDIO_INVESTIGATION.md).
+extended play. No sound (see AUDIO_AND_RESOLUTION_INVESTIGATION.md).
 
 ## Checkpoint
 
