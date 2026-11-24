@@ -8,10 +8,14 @@ import java.util.List;
  * without changing game mechanics:
  *
  * <ul>
- *   <li>tap → left click (select, place building, give order)</li>
+ *   <li>tap → left click (select, place building, give order); the button is held for
+ *       {@link ControlSettings#clickHoldMs} like a real mouse click, because the game reads the button state once per
+ *       frame and misses a press and release sent together</li>
  *   <li>two quick taps → two clicks snapped to the same pixel, so Windows reports a double click
  *       (selects all units of that type)</li>
  *   <li>long press → right click (deselect / cancel placement)</li>
+ *   <li>right-button mode ({@link #setRightButtonMode}): one finger holds the right button while it touches the
+ *       screen (tap = right click, drag = right-button drag for the camera interface)</li>
  *   <li>one-finger drag → left-button drag (box select, wall drawing); optionally camera pan</li>
  *   <li>two-finger drag → holds arrow keys to scroll the map</li>
  *   <li>pinch → mouse-wheel notches at the pinch centre</li>
@@ -56,13 +60,16 @@ public final class TouchMouseMapper {
         }
     }
 
-    enum State { IDLE, PENDING, LEFT_DRAG, CAMERA_DRAG, LONG_PRESSED, MULTI, WAIT_ALL_UP }
+    enum State { IDLE, PENDING, LEFT_DRAG, RIGHT_HOLD, CAMERA_DRAG, LONG_PRESSED, MULTI, WAIT_ALL_UP }
 
     private ControlSettings settings;
     private ViewportTransform viewport;
     private State state = State.IDLE;
 
     private int primaryId;
+    private boolean rightButtonMode;
+    /** When the held button (drag or right-button mode) was pressed. */
+    private long pressTime;
     private float downX, downY;
     private long downTime;
 
@@ -84,6 +91,11 @@ public final class TouchMouseMapper {
 
     public void setViewport(ViewportTransform v) { this.viewport = v; }
 
+    /** On: the next one-finger touches hold the right mouse button instead of producing left clicks. */
+    public void setRightButtonMode(boolean on) { this.rightButtonMode = on; }
+
+    public boolean rightButtonMode() { return rightButtonMode; }
+
     State state() { return state; }
 
     /** Time at which {@link #onTick} should be called to fire a long press, or -1 if none pending. */
@@ -94,9 +106,7 @@ public final class TouchMouseMapper {
     public List<InputAction> onTick(long nowMs) {
         List<InputAction> out = new ArrayList<>();
         if (state == State.PENDING && nowMs - downTime >= settings.longPressMs) {
-            out.add(moveTo(downX, downY));
-            out.add(InputAction.down(InputAction.Button.RIGHT));
-            out.add(InputAction.up(InputAction.Button.RIGHT));
+            click(out, InputAction.Button.RIGHT, downX, downY);
             hasLastTap = false;
             state = State.LONG_PRESSED;
         }
@@ -124,8 +134,15 @@ public final class TouchMouseMapper {
         downX = f.xs[i];
         downY = f.ys[i];
         downTime = f.timeMs;
-        state = State.PENDING;
         out.add(moveTo(downX, downY));
+        if (rightButtonMode) {
+            state = State.RIGHT_HOLD;
+            pressTime = f.timeMs;
+            hasLastTap = false;
+            out.add(InputAction.down(InputAction.Button.RIGHT));
+        } else {
+            state = State.PENDING;
+        }
     }
 
     private void onPointerDown(Frame f, List<InputAction> out) {
@@ -160,6 +177,7 @@ public final class TouchMouseMapper {
                         updatePan(x - downX, y - downY, out);
                     } else {
                         state = State.LEFT_DRAG;
+                        pressTime = f.timeMs;
                         out.add(moveTo(downX, downY));
                         out.add(InputAction.down(InputAction.Button.LEFT));
                         out.add(moveTo(x, y));
@@ -168,6 +186,7 @@ public final class TouchMouseMapper {
                 break;
             }
             case LEFT_DRAG:
+            case RIGHT_HOLD:
                 if (i >= 0) out.add(moveTo(f.xs[i], f.ys[i]));
                 break;
             case CAMERA_DRAG:
@@ -192,10 +211,11 @@ public final class TouchMouseMapper {
                 }
                 break;
             case LEFT_DRAG:
+            case RIGHT_HOLD:
                 if (f.actionPointerId == primaryId) {
                     int i = f.indexOf(primaryId);
                     if (i >= 0) out.add(moveTo(f.xs[i], f.ys[i]));
-                    out.add(InputAction.up(InputAction.Button.LEFT));
+                    release(out, state == State.RIGHT_HOLD ? InputAction.Button.RIGHT : InputAction.Button.LEFT, f.timeMs);
                     state = State.WAIT_ALL_UP;
                 }
                 break;
@@ -223,9 +243,7 @@ public final class TouchMouseMapper {
                     tx = lastTapX;
                     ty = lastTapY;
                 }
-                out.add(moveTo(tx, ty));
-                out.add(InputAction.down(InputAction.Button.LEFT));
-                out.add(InputAction.up(InputAction.Button.LEFT));
+                click(out, InputAction.Button.LEFT, tx, ty);
                 if (isSecondTap) {
                     hasLastTap = false; // a third tap starts a new sequence
                 } else {
@@ -238,7 +256,11 @@ public final class TouchMouseMapper {
             }
             case LEFT_DRAG:
                 out.add(moveTo(x, y));
-                out.add(InputAction.up(InputAction.Button.LEFT));
+                release(out, InputAction.Button.LEFT, f.timeMs);
+                break;
+            case RIGHT_HOLD:
+                out.add(moveTo(x, y));
+                release(out, InputAction.Button.RIGHT, f.timeMs);
                 break;
             case CAMERA_DRAG:
             case MULTI:
@@ -252,6 +274,7 @@ public final class TouchMouseMapper {
 
     private void cancel(List<InputAction> out) {
         if (state == State.LEFT_DRAG) out.add(InputAction.up(InputAction.Button.LEFT));
+        if (state == State.RIGHT_HOLD) out.add(InputAction.up(InputAction.Button.RIGHT));
         releasePanKeys(out);
         hasLastTap = false;
         state = State.IDLE;
@@ -328,6 +351,21 @@ public final class TouchMouseMapper {
             spread += distance(f.xs[i], f.ys[i], cx, cy);
         }
         return new float[] {cx, cy, spread / n * 2f, n};
+    }
+
+    /** A complete click: pointer to the position, press, hold like a real mouse click, release. */
+    private void click(List<InputAction> out, InputAction.Button b, float x, float y) {
+        out.add(moveTo(x, y));
+        out.add(InputAction.down(b));
+        out.add(InputAction.pause(settings.clickHoldMs));
+        out.add(InputAction.up(b));
+    }
+
+    /** Releases a held button; a very short hold is extended to a click's hold time first. */
+    private void release(List<InputAction> out, InputAction.Button b, long nowMs) {
+        long held = nowMs - pressTime;
+        if (held < settings.clickHoldMs) out.add(InputAction.pause((int) (settings.clickHoldMs - Math.max(0, held))));
+        out.add(InputAction.up(b));
     }
 
     private InputAction moveTo(float x, float y) {

@@ -1,5 +1,25 @@
 # Release notes
 
+## 0.4.1 — taps click in the game (fix of 0.4.0's touch input)
+
+* Device result of 0.4.0 (owner, Stronghold Crusader HD 1.41): Start Game, intro and main menu work; the cursor
+  follows the finger exactly and Esc/Enter/Space/Keys work, but tapping "Crusader" did nothing.
+* Cause: a tap sent left press and left release to the X server at the same instant (0 ms apart). The CI test
+  window reads Windows messages, which queue both, so it saw the click; the game reads the mouse button state once
+  per frame and sees the button already up. cnc-ddraw (which hides mouse messages while its cursor lock is off) was
+  checked in its v7.0.0.0 source: the moving cursor shows the lock was on, so it was not the cause.
+* Fix: every click holds the button like a real mouse click (120 ms, adjustable in Control settings: "Click: button
+  held for"): tap = move → left press → hold → release; long press = right click with the same hold; a very short drag
+  is extended to the hold time before release. Drag still holds the left button from the moment the finger leaves the
+  tap radius until it lifts.
+* New side key **Right**: while on, one finger holds the right mouse button for the whole touch (tap = right click,
+  drag = right-button drag, for the camera interface). Tap it again for normal left clicks.
+* CI now checks on the Windows side (test program under Wine): one left click per tap held ≥ 80 ms at the tapped
+  pixel, drag with left held, long press = right click without a left click, right-button drag, a real double click,
+  cancel releases, a second finger does not click, no button left held; a polling thread shows the button state as a
+  per-frame game sees it.
+* No runtime change (r6). 0.4.0 must be uninstalled first (debug key of each build differs).
+
 ## 0.4.0 — Start Game: playable game screen with touch and keyboard input (development build)
 
 * Device result of 0.3.8 (owner, Xiaomi 25053PC47G, Android 16, DRM-free 2018 build): DirectDraw pre-check PASS

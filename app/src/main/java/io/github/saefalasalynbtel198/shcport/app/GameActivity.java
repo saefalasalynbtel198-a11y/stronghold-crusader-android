@@ -79,6 +79,8 @@ public final class GameActivity extends Activity implements Choreographer.FrameC
         bar.addView(key("Esc", X11Input.XK_ESCAPE));
         bar.addView(key("Enter", X11Input.XK_RETURN));
         bar.addView(key("Space", X11Input.XK_SPACE));
+        rightToggle = small("Right", v -> setRightMode(!surface.rightMode()));
+        bar.addView(rightToggle);
         bar.addView(small("Keys", v -> surface.showKeyboard()));
         bar.addView(small("Report", v -> copyReport()));
         bar.addView(small("Exit", v -> confirmExit()));
@@ -107,6 +109,19 @@ public final class GameActivity extends Activity implements Choreographer.FrameC
 
         wantStart = !app.playLife.active();      // otherwise: show the running session
         ui.post(tick);
+    }
+
+    private Button rightToggle;
+
+    /**
+     * Right-button mode: while on, a one-finger touch holds the right mouse button (tap = right click, drag = right
+     * drag, which opens the game's camera interface). Off again: taps are left clicks.
+     */
+    private void setRightMode(boolean on) {
+        surface.setRightMode(on);
+        rightToggle.setText(on ? "Right ✓" : "Right");
+        rightToggle.setAlpha(on ? 1f : 0.75f);
+        rightToggle.setBackgroundColor(on ? 0xffb03020 : 0xff505050);
     }
 
     private Button key(String label, int keysym) {
@@ -394,6 +409,15 @@ public final class GameActivity extends Activity implements Choreographer.FrameC
             setFocusableInTouchMode(true);
         }
 
+        private boolean rightMode;
+
+        boolean rightMode() { return rightMode; }
+
+        void setRightMode(boolean on) {
+            rightMode = on;
+            if (mapper != null) mapper.setRightButtonMode(on);
+        }
+
         void reloadSettings() {
             if (mapper != null) mapper.setSettings(new ControlSettingsStore(getContext()).load());
         }
@@ -402,8 +426,12 @@ public final class GameActivity extends Activity implements Choreographer.FrameC
         protected void onSizeChanged(int w, int h, int oldw, int oldh) {
             // the same letterbox geometry as the renderer, so a touch lands on the pixel shown under the finger
             viewport = new ViewportTransform(X11DisplayPlan.WIDTH, X11DisplayPlan.HEIGHT, w, h);
-            if (mapper == null) mapper = new TouchMouseMapper(new ControlSettingsStore(getContext()).load(), viewport);
-            else mapper.setViewport(viewport);
+            if (mapper == null) {
+                mapper = new TouchMouseMapper(new ControlSettingsStore(getContext()).load(), viewport);
+                mapper.setRightButtonMode(rightMode);
+            } else {
+                mapper.setViewport(viewport);
+            }
         }
 
         @Override

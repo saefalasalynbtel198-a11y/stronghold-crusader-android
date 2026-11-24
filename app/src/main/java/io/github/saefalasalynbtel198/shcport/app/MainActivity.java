@@ -89,8 +89,9 @@ public final class MainActivity extends Activity implements GameImporter.Listene
         col.addView(playButton);
         col.addView(playReason);
         col.addView(Ui.muted(this, "Controls: tap = left click, long press = right click, drag = drag/select, "
-                + "two fingers = scroll the map, pinch = mouse wheel. Side keys: Esc, Enter, Space, Keys (soft keyboard), "
-                + "Report, Exit. Troubleshooting: Runtime → Game launch test (diagnostic)."));
+                + "two fingers = scroll the map, pinch = mouse wheel. Side keys: Esc, Enter, Space, Right (one finger holds "
+                + "the right button: right click, camera view), Keys (soft keyboard), Report, Exit. "
+                + "Troubleshooting: Runtime → Game launch test (diagnostic)."));
 
         col.addView(Ui.heading(this, "Tools"));
         col.addView(Ui.row(this,

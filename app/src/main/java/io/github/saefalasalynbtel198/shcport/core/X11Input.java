@@ -245,6 +245,15 @@ public final class X11Input implements Closeable {
             case WHEEL: wheel(a.wheel); break;
             case KEY_DOWN: key(keysymForVk(a.keyCode), true); break;
             case KEY_UP: key(keysymForVk(a.keyCode), false); break;
+            case PAUSE:
+                // the press must reach the X server now, and stay pressed for the pause
+                out.flush();
+                try {
+                    Thread.sleep(Math.max(0, a.x));
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+                break;
             default: break;
         }
     }

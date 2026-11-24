@@ -273,9 +273,10 @@ public final class DisplayCli {
     }
 
     /**
-     * The app's input path against the real Xvfb: connection setup, XTEST, keymap, then a click, a right click, a drag,
-     * the wheel and keys as the game screen sends them. Checks what the X server reports (QueryPointer/QueryKeymap);
-     * the Windows side (the test program's "input" lines) is checked by the script.
+     * The app's input path against the real Xvfb: every gesture goes through the app's TouchMouseMapper (with the
+     * owner's 1786x1228 letterboxed view) and X11Input, with real time between the touch events, as the game screen
+     * sends them. Checks what the X server reports (QueryPointer/QueryKeymap); what the Windows test program received
+     * (messages, their times, polled button state) is checked by the script.
      */
     private static int input(int display, String bridge) throws Exception {
         Process p = new ProcessBuilder("python3", "-I", bridge, String.valueOf(display)).redirectError(ProcessBuilder.Redirect.INHERIT).start();
@@ -288,48 +289,71 @@ public final class DisplayCli {
             boolean keymap = x.keycodeOf(0xff1b) != 0 && x.keycodeOf(0xff0d) != 0 && x.keycodeOf('a') != 0 && x.keycodeOf(0xff51) != 0;
             System.out.println("check keymap has Escape, Return, letters, arrows: " + (keymap ? "PASS" : "FAIL"));
             if (!keymap) bad++;
-            // touch path: a tap in the middle of the owner's 1786x1228 view → mapper → X11
-            io.github.saefalasalynbtel198.shcport.core.ViewportTransform vt =
-                    new io.github.saefalasalynbtel198.shcport.core.ViewportTransform(1024, 768, 1786, 1228);
-            io.github.saefalasalynbtel198.shcport.core.TouchMouseMapper m = new io.github.saefalasalynbtel198.shcport.core.TouchMouseMapper(
-                    new io.github.saefalasalynbtel198.shcport.core.ControlSettings(), vt);
-            float sx = vt.offsetX + 700.5f * vt.scale, sy = vt.offsetY + 500.5f * vt.scale;
-            for (io.github.saefalasalynbtel198.shcport.core.InputAction act : m.onTouch(
-                    io.github.saefalasalynbtel198.shcport.core.TouchMouseMapper.Frame.single(
-                            io.github.saefalasalynbtel198.shcport.core.TouchMouseMapper.Action.DOWN, sx, sy, 1000))) x.send(act);
-            int[] held = x.queryPointer();
-            for (io.github.saefalasalynbtel198.shcport.core.InputAction act : m.onTouch(
-                    io.github.saefalasalynbtel198.shcport.core.TouchMouseMapper.Frame.single(
-                            io.github.saefalasalynbtel198.shcport.core.TouchMouseMapper.Action.UP, sx, sy, 1080))) x.send(act);
-            int[] tap = x.queryPointer();
-            boolean tapOk = tap[0] == 700 && tap[1] == 500 && (tap[2] & 0x100) == 0;
-            System.out.println("check tap → pointer at 700,500, button released (X server): " + (tapOk ? "PASS" : "FAIL")
-                    + " (" + tap[0] + "," + tap[1] + " mask 0x" + Integer.toHexString(tap[2]) + "; while down 0x" + Integer.toHexString(held[2]) + ")");
-            if (!tapOk) bad++;
-            Thread.sleep(1500);
-            // left drag
-            x.motion(200, 150);
+            Touch t = new Touch(x);
+
+            // 0. for comparison: press and release sent together, as 0.4.0 did for a tap
+            x.motion(100, 700);
             x.button(1, true);
-            int[] d1 = x.queryPointer();
-            x.motion(320, 260);
-            int[] d2 = x.queryPointer();
             x.button(1, false);
-            boolean drag = (d1[2] & 0x100) != 0 && d2[0] == 320 && d2[1] == 260 && (d2[2] & 0x100) != 0 && (x.queryPointer()[2] & 0x100) == 0;
-            System.out.println("check left drag 200,150 → 320,260 with Button1 held (X server): " + (drag ? "PASS" : "FAIL"));
+            x.queryPointer();
+            Thread.sleep(2500);
+            System.out.println("gesture instant-click (0.4.0 style) at 100,700 sent");
+
+            // 1. tap
+            t.down(700, 500); t.sleep(80); t.up(700, 500);
+            int[] tap = x.queryPointer();
+            boolean tapOk = tap[0] == 700 && tap[1] == 500 && (tap[2] & 0x500) == 0;
+            System.out.println("check tap → pointer at 700,500, no button left held (X server): " + (tapOk ? "PASS" : "FAIL")
+                    + " (" + tap[0] + "," + tap[1] + " mask 0x" + Integer.toHexString(tap[2]) + ")");
+            if (!tapOk) bad++;
+            Thread.sleep(2500);
+
+            // 2. one-finger drag (box select)
+            t.down(200, 150); t.sleep(60); t.move(260, 200);
+            boolean held = (x.queryPointer()[2] & 0x100) != 0;
+            t.sleep(100); t.move(320, 260); t.sleep(100); t.up(320, 260);
+            boolean drag = held && (x.queryPointer()[2] & 0x100) == 0;
+            System.out.println("check drag 200,150 → 320,260: left held during the drag, released after (X server): " + (drag ? "PASS" : "FAIL"));
             if (!drag) bad++;
-            Thread.sleep(1500);
-            // right click, wheel
-            x.motion(640, 400);
-            x.button(3, true);
-            boolean right = (x.queryPointer()[2] & 0x400) != 0;
-            x.button(3, false);
-            right &= (x.queryPointer()[2] & 0x400) == 0;
-            System.out.println("check right click (Button3 held, then released): " + (right ? "PASS" : "FAIL"));
+            Thread.sleep(2500);
+
+            // 3. long press → right click
+            t.down(640, 400); t.sleep(700); t.tick(); t.up(640, 400);
+            System.out.println("gesture long press at 640,400 sent");
+            Thread.sleep(2500);
+
+            // 4. right-button mode: hold right while moving (camera interface)
+            t.mapper.setRightButtonMode(true);
+            t.down(600, 300); t.sleep(80);
+            boolean rHeld = (x.queryPointer()[2] & 0x400) != 0;
+            t.move(650, 330); t.sleep(100); t.move(700, 360); t.sleep(80); t.up(700, 360);
+            boolean right = rHeld && (x.queryPointer()[2] & 0x400) == 0;
+            t.mapper.setRightButtonMode(false);
+            System.out.println("check right-button mode: right held while the finger moves, released after (X server): " + (right ? "PASS" : "FAIL"));
             if (!right) bad++;
+            Thread.sleep(2500);
+
+            // 5. double tap
+            t.down(512, 384); t.sleep(60); t.up(512, 384); t.sleep(120);
+            t.down(518, 388); t.sleep(60); t.up(518, 388);
+            System.out.println("gesture double tap at 512,384 sent");
+            Thread.sleep(2500);
+
+            // 6. drag interrupted (touch cancelled, e.g. the app is paused)
+            t.down(300, 600); t.sleep(60); t.move(380, 640); t.sleep(80); t.cancel();
+            boolean released = (x.queryPointer()[2] & 0x500) == 0;
+            System.out.println("check cancelled drag releases the button (X server): " + (released ? "PASS" : "FAIL"));
+            if (!released) bad++;
+            Thread.sleep(2500);
+
+            // 7. second finger during a tap: no click
+            t.down(800, 200); t.sleep(40); t.second(900, 250); t.sleep(80); t.allUp();
+            System.out.println("gesture two-finger touch at 800,200 sent (must not click)");
             x.wheel(-1);
             x.flush();
-            Thread.sleep(1500);
-            // keys: Escape, typed "a", Return
+            Thread.sleep(2500);
+
+            // 8. keys: Escape, typed "a", "A", Return
             int esc = x.keycodeOf(0xff1b);
             x.key(0xff1b, true);
             boolean escDown = x.isKeyDown(esc);
@@ -338,16 +362,77 @@ public final class DisplayCli {
             boolean typed = x.type('a') && x.type('A');
             x.key(0xff0d, true);
             x.key(0xff0d, false);
-            x.queryPointer();
+            int[] end = x.queryPointer();
             boolean keys = escDown && escUp && typed;
             System.out.println("check keys: Escape pressed/released, 'a' and 'A' typed, Return (X server): " + (keys ? "PASS" : "FAIL"));
             if (!keys) bad++;
+            boolean none = (end[2] & 0x1f00) == 0;
+            System.out.println("check no mouse button held at the end (X server): " + (none ? "PASS" : "FAIL (mask 0x" + Integer.toHexString(end[2]) + ")"));
+            if (!none) bad++;
             System.out.println("x11 input: X errors " + x.errors + (x.errors > 0 ? " (" + x.lastError + ")" : ""));
             if (x.errors > 0) bad++;
         } finally {
             p.destroy();
         }
         return bad == 0 ? 0 : 1;
+    }
+
+    /** Touch frames in game pixels through the app's mapper on the owner's 1786x1228 view (letterboxed). */
+    private static final class Touch {
+        final io.github.saefalasalynbtel198.shcport.core.X11Input x;
+        final io.github.saefalasalynbtel198.shcport.core.ViewportTransform vt =
+                new io.github.saefalasalynbtel198.shcport.core.ViewportTransform(1024, 768, 1786, 1228);
+        final io.github.saefalasalynbtel198.shcport.core.TouchMouseMapper mapper = new io.github.saefalasalynbtel198.shcport.core.TouchMouseMapper(
+                new io.github.saefalasalynbtel198.shcport.core.ControlSettings(), vt);
+        final long t0 = System.currentTimeMillis();
+        float lx, ly;
+
+        Touch(io.github.saefalasalynbtel198.shcport.core.X11Input x) { this.x = x; }
+
+        private float sx(int gx) { return vt.offsetX + (gx + 0.5f) * vt.scale; }
+
+        private float sy(int gy) { return vt.offsetY + (gy + 0.5f) * vt.scale; }
+
+        private long now() { return System.currentTimeMillis() - t0; }
+
+        private void send(List<io.github.saefalasalynbtel198.shcport.core.InputAction> acts) throws Exception {
+            for (io.github.saefalasalynbtel198.shcport.core.InputAction a : acts) x.send(a);
+            x.flush();
+        }
+
+        private void frame(io.github.saefalasalynbtel198.shcport.core.TouchMouseMapper.Action a, int gx, int gy) throws Exception {
+            lx = sx(gx);
+            ly = sy(gy);
+            send(mapper.onTouch(io.github.saefalasalynbtel198.shcport.core.TouchMouseMapper.Frame.single(a, lx, ly, now())));
+        }
+
+        void down(int gx, int gy) throws Exception { frame(io.github.saefalasalynbtel198.shcport.core.TouchMouseMapper.Action.DOWN, gx, gy); }
+
+        void move(int gx, int gy) throws Exception { frame(io.github.saefalasalynbtel198.shcport.core.TouchMouseMapper.Action.MOVE, gx, gy); }
+
+        void up(int gx, int gy) throws Exception { frame(io.github.saefalasalynbtel198.shcport.core.TouchMouseMapper.Action.UP, gx, gy); }
+
+        void cancel() throws Exception { frame(io.github.saefalasalynbtel198.shcport.core.TouchMouseMapper.Action.CANCEL, 0, 0); }
+
+        void tick() throws Exception { send(mapper.onTick(now())); }
+
+        void sleep(long ms) throws Exception { Thread.sleep(ms); }
+
+        /** A second finger touches (pointer 1) while the first is down. */
+        void second(int gx, int gy) throws Exception {
+            send(mapper.onTouch(new io.github.saefalasalynbtel198.shcport.core.TouchMouseMapper.Frame(
+                    io.github.saefalasalynbtel198.shcport.core.TouchMouseMapper.Action.POINTER_DOWN, 1, new int[] {0, 1},
+                    new float[] {lx, sx(gx)}, new float[] {ly, sy(gy)}, now())));
+        }
+
+        /** Both fingers lift: the second, then the first. */
+        void allUp() throws Exception {
+            send(mapper.onTouch(new io.github.saefalasalynbtel198.shcport.core.TouchMouseMapper.Frame(
+                    io.github.saefalasalynbtel198.shcport.core.TouchMouseMapper.Action.POINTER_UP, 1, new int[] {0, 1},
+                    new float[] {lx, lx + 100}, new float[] {ly, ly + 50}, now())));
+            send(mapper.onTouch(io.github.saefalasalynbtel198.shcport.core.TouchMouseMapper.Frame.single(
+                    io.github.saefalasalynbtel198.shcport.core.TouchMouseMapper.Action.UP, lx, ly, now())));
+        }
     }
 
     private static int gameLaunch(String[] a) throws Exception {

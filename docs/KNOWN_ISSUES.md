@@ -63,7 +63,10 @@
   copy in internal storage (needs internal space for the whole game folder + 256 MB). Why the game chose to exit is not
   known yet; the 0.3.7 report's exit analysis is meant to show it. 0.3.7 is not yet run on the phone.
 * 0.3.8 on the phone: the real game reached its "Enter Your Title" menu (no input in the launch test).
-* 0.4.0 adds Start Game with touch/keyboard input (CI-verified into a Windows program under Wine; not yet on the phone).
+* 0.4.0 on the phone: menu reached, cursor and keys work, taps did not click (press/release sent together).
+  0.4.1 holds each click 120 ms and adds a Right toggle; CI-verified under Wine, not yet on the phone.
+* cnc-ddraw ignores mouse buttons while its cursor lock is off; if the lock is ever lost, the first click only
+  re-locks it (a second tap then works).
 * No sound: Wine's ALSA driver cannot open sound devices on Android (apps have no /dev/snd access). Needs an audio
   backend that Android allows (for example AAudio through a PulseAudio server for winepulse) in a future runtime.
 * When the app is in the background, Android may freeze or stop it (no foreground service yet); return to the game

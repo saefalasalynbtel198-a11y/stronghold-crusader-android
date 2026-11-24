@@ -187,6 +187,8 @@ Last updated: 2026-11-20 (BUILD 2 device report 2: glibc patched for Android sec
    log read, program's own DirectDraw report required; CI-tested only.
    0.3.8 on the device: pre-check PASS; the real game (DRM-free 2018) reached its "Enter Your Title" menu.
    0.4.0: Start Game + game screen (same launch path, no traces), XTEST input, session lifecycle; CI-tested only.
+   0.4.0 on the device: Start Game, intro and menu OK; cursor and keys OK; taps did not click.
+   0.4.1: clicks held 120 ms (game polls the button state), Right toggle for right click/hold; CI-tested only.
 1. Owner: install app 0.3.5-dev.1 (keep runtime r6), Runtime → Display test → Start, check the screen, pause/resume,
    let it run a few minutes, Stop, Copy report; send the report and a phone screenshot.
 2. Agent: analyse the device report; step 3.3 (touch input) only after step 3.2 passes on the device.

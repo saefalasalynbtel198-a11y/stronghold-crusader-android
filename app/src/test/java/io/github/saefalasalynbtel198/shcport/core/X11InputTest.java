@@ -33,6 +33,7 @@ public class X11InputTest {
     static final class FakeX implements Runnable {
         final ServerSocket server = new ServerSocket(0);
         final List<int[]> fakes = Collections.synchronizedList(new ArrayList<>());   // {type, detail, x, y, root}
+        final List<Long> times = Collections.synchronizedList(new ArrayList<>());    // arrival (ms) of each fake event
         volatile boolean refuse;
         int px, py, mask;
         final boolean[] keys = new boolean[256];
@@ -116,6 +117,7 @@ public class X11InputTest {
                         if (words != 9) throw new IOException("FakeInput length " + words);
                         int type = b.get(4) & 0xff, detail = b.get(5) & 0xff, x = b.getShort(24), y = b.getShort(26);
                         fakes.add(new int[] {type, detail, x, y, b.getInt(12)});
+                        times.add(System.nanoTime() / 1_000_000);
                         if (type == 6) { px = x; py = y; }
                         if (type == 4 && detail <= 3) mask |= 0x80 << detail;
                         if (type == 5 && detail <= 3) mask &= ~(0x80 << detail);
@@ -149,6 +151,7 @@ public class X11InputTest {
         server = new FakeX();
         server.refuse = refuse;
         socket = new Socket("127.0.0.1", server.server.getLocalPort());
+        socket.setTcpNoDelay(true);   // the app's Unix socket has no Nagle delay; over TCP it would delay small writes ~40 ms
         InputStream in = socket.getInputStream();
         return X11Input.connect(in, socket.getOutputStream());
     }
@@ -258,6 +261,42 @@ public class X11InputTest {
         assertEquals(0x01000000 | 0x0644, X11Input.keysymForChar(0x0644));
         assertEquals(X11Input.XK_RETURN, X11Input.keysymForChar('\n'));
         assertEquals(0, X11Input.keysymForChar(0x07));
+    }
+
+    /**
+     * 0.4.0 on the phone: taps moved the cursor but did not click, because press and release left together and the
+     * game reads the button state once per frame. A tap must now reach the server as motion → press → (held) →
+     * release, the release at least the click hold time after the press.
+     */
+    @Test
+    public void tapReachesTheServerAsAHeldClick() throws Exception {
+        X11Input x = connect(false);
+        for (int i = 0; i < 200; i++) {                                     // warm up the fake server's code paths
+            x.motion(i, i);
+            x.button(2, true);
+            x.button(2, false);
+            x.queryPointer();
+        }
+        server.fakes.clear();
+        server.times.clear();
+        ViewportTransform vt = new ViewportTransform(1024, 768, 1786, 1228);
+        TouchMouseMapper m = new TouchMouseMapper(new ControlSettings(), vt);
+        float sx = vt.offsetX + 300.5f * vt.scale, sy = vt.offsetY + 200.5f * vt.scale;
+        for (InputAction a : m.onTouch(TouchMouseMapper.Frame.single(TouchMouseMapper.Action.DOWN, sx, sy, 0))) x.send(a);
+        for (InputAction a : m.onTouch(TouchMouseMapper.Frame.single(TouchMouseMapper.Action.UP, sx, sy, 70))) x.send(a);
+        x.queryPointer();
+        int press = -1, release = -1;
+        for (int i = 0; i < server.fakes.size(); i++) {
+            int[] f = server.fakes.get(i);
+            if (f[0] == 4) { assertEquals(-1, press); press = i; }
+            if (f[0] == 5) { assertEquals(-1, release); release = i; }
+        }
+        assertTrue("press before release", press >= 0 && release > press);
+        assertEquals(1, server.fakes.get(press)[1]);                         // left button
+        assertArrayEquals(new int[] {6, 0, 300, 200, ROOT}, server.fakes.get(press - 1));   // moved there first
+        long held = server.times.get(release) - server.times.get(press);
+        assertTrue("held " + held + " ms", held >= 100);
+        assertEquals(0, x.queryPointer()[2]);                                // nothing left pressed
     }
 
     /** Touch on a letterboxed phone screen → mapper → X11 events at the game pixel under the finger. */

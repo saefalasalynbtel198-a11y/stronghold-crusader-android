@@ -5,6 +5,11 @@ public final class ControlSettings {
 
     /** Hold time before a stationary finger produces a right click (cancel / deselect in-game). */
     public int longPressMs = 450;
+    /**
+     * How long a click holds the mouse button (ms), like a real mouse click. The game reads the button state once per
+     * frame; a press and release sent together are missed (0.4.0 on the phone: taps did not click).
+     */
+    public int clickHoldMs = 120;
     /** Maximum gap between two taps that are snapped together so Windows sees a double click. */
     public int doubleTapMs = 300;
     /** Movement (screen px) below which a touch still counts as a tap. */
@@ -25,6 +30,7 @@ public final class ControlSettings {
         ControlSettings s = copy();
         s.longPressMs = clamp(s.longPressMs, 200, 1500);
         s.doubleTapMs = clamp(s.doubleTapMs, 100, 800);
+        s.clickHoldMs = clamp(s.clickHoldMs, 30, 500);
         s.touchSlopPx = clamp(s.touchSlopPx, 4f, 120f);
         s.pinchStep = clamp(s.pinchStep, 0.05f, 1.0f);
         s.panThresholdPx = clamp(s.panThresholdPx, 8f, 300f);
@@ -35,6 +41,7 @@ public final class ControlSettings {
         ControlSettings s = new ControlSettings();
         s.longPressMs = longPressMs;
         s.doubleTapMs = doubleTapMs;
+        s.clickHoldMs = clickHoldMs;
         s.touchSlopPx = touchSlopPx;
         s.pinchStep = pinchStep;
         s.panThresholdPx = panThresholdPx;

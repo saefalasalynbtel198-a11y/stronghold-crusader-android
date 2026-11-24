@@ -70,18 +70,37 @@ static void draw_frame(HDC dc) {
   }
 }
 
-static int g_inputs;
+static int g_inputs, g_moves;
 
+/* message time (Wine: the X server's event time) lets CI measure how long a button was held */
 static void input(const char *what, WPARAM wp, LPARAM lp, int pos) {
-  if (g_inputs++ >= 200) return;
-  if (pos) out("display-test: input %s %d,%d\n", what, (int)(short)LOWORD(lp), (int)(short)HIWORD(lp));
-  else out("display-test: input %s 0x%02x\n", what, (unsigned)wp);
+  if (g_inputs++ >= 300) return;
+  if (pos) out("display-test: input %s %d,%d t=%ld\n", what, (int)(short)LOWORD(lp), (int)(short)HIWORD(lp), (long)GetMessageTime());
+  else out("display-test: input %s 0x%02x t=%ld\n", what, (unsigned)wp, (long)GetMessageTime());
+}
+
+/* Like a game that reads the mouse once per frame: samples the button state every 15 ms and reports changes. */
+static DWORD WINAPI poll_buttons(LPVOID unused) {
+  (void)unused;
+  int l = 0, r = 0, n = 0;
+  for (;;) {
+    int nl = (GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0, nr = (GetAsyncKeyState(VK_RBUTTON) & 0x8000) != 0;
+    if ((nl != l || nr != r) && n++ < 100) out("display-test: poll left %s right %s t=%lu\n", nl ? "down" : "up", nr ? "down" : "up", GetTickCount());
+    l = nl;
+    r = nr;
+    Sleep(15);
+  }
+  return 0;
 }
 
 static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
   switch (msg) {
     case WM_LBUTTONDOWN: input("WM_LBUTTONDOWN", wp, lp, 1); SetFocus(hwnd); return 0;
     case WM_LBUTTONUP: input("WM_LBUTTONUP", wp, lp, 1); return 0;
+    case WM_LBUTTONDBLCLK: input("WM_LBUTTONDBLCLK", wp, lp, 1); return 0;
+    case WM_MOUSEMOVE:
+      if ((wp & (MK_LBUTTON | MK_RBUTTON)) && g_moves++ < 60) input(wp & MK_RBUTTON ? "WM_MOUSEMOVE+R" : "WM_MOUSEMOVE+L", wp, lp, 1);
+      return 0;
     case WM_RBUTTONDOWN: input("WM_RBUTTONDOWN", wp, lp, 1); return 0;
     case WM_RBUTTONUP: input("WM_RBUTTONUP", wp, lp, 1); return 0;
     case WM_MOUSEWHEEL: input("WM_MOUSEWHEEL", (WPARAM)(short)HIWORD(wp) & 0xffff, lp, 0); return 0;
@@ -108,6 +127,7 @@ int main(int argc, char **argv) {
   WNDCLASSA wc;
   memset(&wc, 0, sizeof wc);
   wc.lpfnWndProc = wndproc;
+  wc.style = CS_DBLCLKS;
   wc.hInstance = GetModuleHandleA(NULL);
   wc.hCursor = LoadCursorA(NULL, (LPCSTR)IDC_ARROW);
   wc.lpszClassName = "shc-display-test";
@@ -121,6 +141,7 @@ int main(int argc, char **argv) {
   SelectObject(g_mem, g_bmp);
   ShowWindow(hwnd, SW_SHOW);
   out("display-test: window %p created\n", (void *)hwnd);
+  CreateThread(NULL, 0, poll_buttons, NULL, 0, NULL);
   DWORD start = GetTickCount(), last_report = start;
   for (;;) {
     MSG m;

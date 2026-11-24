@@ -36,6 +36,8 @@ public final class SettingsActivity extends Activity {
 
         addSlider(col, "Long press → right click (ms)", 200, 1500, settings.longPressMs,
                 v -> settings.longPressMs = v);
+        addSlider(col, "Click: button held for (ms)", 30, 500, settings.clickHoldMs,
+                v -> settings.clickHoldMs = v);
         addSlider(col, "Double-tap window (ms)", 100, 800, settings.doubleTapMs,
                 v -> settings.doubleTapMs = v);
         addSlider(col, "Tap tolerance (px)", 4, 120, Math.round(settings.touchSlopPx),

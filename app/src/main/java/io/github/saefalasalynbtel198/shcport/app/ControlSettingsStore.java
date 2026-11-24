@@ -20,6 +20,7 @@ public final class ControlSettingsStore {
         ControlSettings s = new ControlSettings();
         s.longPressMs = prefs.getInt("longPressMs", d.longPressMs);
         s.doubleTapMs = prefs.getInt("doubleTapMs", d.doubleTapMs);
+        s.clickHoldMs = prefs.getInt("clickHoldMs", d.clickHoldMs);
         s.touchSlopPx = prefs.getFloat("touchSlopPx", d.touchSlopPx);
         s.pinchStep = prefs.getFloat("pinchStep", d.pinchStep);
         s.panThresholdPx = prefs.getFloat("panThresholdPx", d.panThresholdPx);
@@ -33,6 +34,7 @@ public final class ControlSettingsStore {
         prefs.edit()
                 .putInt("longPressMs", s.longPressMs)
                 .putInt("doubleTapMs", s.doubleTapMs)
+                .putInt("clickHoldMs", s.clickHoldMs)
                 .putFloat("touchSlopPx", s.touchSlopPx)
                 .putFloat("pinchStep", s.pinchStep)
                 .putFloat("panThresholdPx", s.panThresholdPx)
