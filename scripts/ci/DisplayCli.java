@@ -30,6 +30,7 @@ import io.github.saefalasalynbtel198.shcport.core.XvfbStarter;
  *     WineTestPlan.prefixInitSteps, run with ProcessBuilder like the app); --no-parent = as 0.3.2-0.3.4 (no mkdirs)
  *   wine-env <runtime> <prefix> <tmp> <display> | wine-argv <runtime> <exe> | check <framebuffer file>
  *   input <display> <bridge.py>: the app's X11 input client (XTEST) against the running Xvfb
+ *   audio-bridge <socket> <outdir> <seconds> [pause-at pause-for]: the app's audio receiver, recording to WAV
  */
 public final class DisplayCli {
     public static void main(String[] a) throws Exception {
@@ -45,6 +46,9 @@ public final class DisplayCli {
                 break;
             case "input":          // input <display> <bridge.py>: XTEST through the app's X11Input against Xvfb
                 System.exit(input(Integer.parseInt(a[1]), a[2]));
+                break;
+            case "audio-bridge":   // audio-bridge <socket path> <out dir> <max seconds> [pause-at-s pause-for-s]; stops on <out>/stop
+                System.exit(audioBridge(a));
                 break;
             case "game-launch":    // game-launch <runtime> <prefix> <gamedir> <exe> <tmp> <display> <fbfile> <logdir>
                 System.exit(gameLaunch(a));
@@ -433,6 +437,83 @@ public final class DisplayCli {
             send(mapper.onTouch(io.github.saefalasalynbtel198.shcport.core.TouchMouseMapper.Frame.single(
                     io.github.saefalasalynbtel198.shcport.core.TouchMouseMapper.Action.UP, lx, ly, now())));
         }
+    }
+
+    /**
+     * The app's audio receiver (core/AudioStreamPump) on a Unix socket, each stream into a PacedRecordingSink (real-time
+     * consumption, 100 ms buffer, like AudioTrack): what the ALSA plugin sends from Wine is recorded to WAV files.
+     * Optionally pauses all output for a while (as on Android audio-focus loss) to check that the stream resumes.
+     */
+    private static int audioBridge(String[] a) throws Exception {
+        java.nio.file.Path sock = java.nio.file.Paths.get(a[1]);
+        File out = new File(a[2]);
+        out.mkdirs();
+        long seconds = Long.parseLong(a[3]);
+        long pauseAt = a.length > 5 ? Long.parseLong(a[4]) : -1, pauseFor = a.length > 5 ? Long.parseLong(a[5]) : 0;
+        java.nio.file.Files.deleteIfExists(sock);
+        java.nio.channels.ServerSocketChannel server = java.nio.channels.ServerSocketChannel.open(java.net.StandardProtocolFamily.UNIX);
+        server.bind(java.net.UnixDomainSocketAddress.of(sock));
+        io.github.saefalasalynbtel198.shcport.core.AudioSettings settings = new io.github.saefalasalynbtel198.shcport.core.AudioSettings();
+        List<io.github.saefalasalynbtel198.shcport.core.PacedRecordingSink> sinks = java.util.Collections.synchronizedList(new ArrayList<>());
+        List<io.github.saefalasalynbtel198.shcport.core.AudioStreamPump> pumps = java.util.Collections.synchronizedList(new ArrayList<>());
+        System.out.println("audio bridge listening on " + sock);
+        Thread acceptor = new Thread(() -> {
+            int n = 0;
+            while (true) {
+                java.nio.channels.SocketChannel ch;
+                try {
+                    ch = server.accept();
+                } catch (Exception e) {
+                    return;
+                }
+                int id = ++n;
+                io.github.saefalasalynbtel198.shcport.core.PacedRecordingSink sink =
+                        new io.github.saefalasalynbtel198.shcport.core.PacedRecordingSink(new File(out, "stream-" + id + ".wav"), 100);
+                io.github.saefalasalynbtel198.shcport.core.AudioStreamPump pump = new io.github.saefalasalynbtel198.shcport.core.AudioStreamPump(() -> settings);
+                sinks.add(sink);
+                pumps.add(pump);
+                new Thread(() -> {
+                    try {
+                        pump.run(java.nio.channels.Channels.newInputStream(ch), java.nio.channels.Channels.newOutputStream(ch), sink);
+                    } catch (Exception e) {
+                        // status keeps the reason
+                    }
+                    System.out.println("audio stream " + id + ": " + pump.status + "; " + sink.frames() + " frames, peak " + pump.peak);
+                }, "audio-" + id).start();
+            }
+        }, "audio-accept");
+        acceptor.setDaemon(true);
+        acceptor.start();
+        long t0 = System.currentTimeMillis(), firstStream = -1;
+        boolean pausedOnce = false;
+        File stop = new File(out, "stop");
+        while (System.currentTimeMillis() - t0 < seconds * 1000 && !stop.exists()) {
+            if (firstStream < 0 && !sinks.isEmpty()) firstStream = System.currentTimeMillis();
+            long el = firstStream < 0 ? -1 : (System.currentTimeMillis() - firstStream) / 1000;   // since the first stream
+            if (pauseAt >= 0 && !pausedOnce && el >= pauseAt) {
+                pausedOnce = true;
+                System.out.println("audio bridge: pausing output for " + pauseFor + " s (as on audio-focus loss)");
+                synchronized (sinks) { for (io.github.saefalasalynbtel198.shcport.core.PacedRecordingSink k : sinks) k.setPaused(true); }
+                Thread.sleep(pauseFor * 1000);
+                synchronized (sinks) { for (io.github.saefalasalynbtel198.shcport.core.PacedRecordingSink k : sinks) k.setPaused(false); }
+                System.out.println("audio bridge: output resumed");
+            }
+            Thread.sleep(200);
+        }
+        server.close();
+        synchronized (pumps) { for (io.github.saefalasalynbtel198.shcport.core.AudioStreamPump p : pumps) p.stop(); }
+        Thread.sleep(500);
+        synchronized (sinks) {
+            for (int i = 0; i < sinks.size(); i++) {
+                io.github.saefalasalynbtel198.shcport.core.PacedRecordingSink k = sinks.get(i);
+                k.close();
+                System.out.println("audio bridge stream " + (i + 1) + ": " + k.rate() + " Hz, " + k.channels() + " ch, " + k.frames()
+                        + " frames (" + (k.rate() > 0 ? k.frames() * 1000 / k.rate() : 0) + " ms)");
+            }
+        }
+        java.nio.file.Files.deleteIfExists(sock);
+        System.out.println("audio bridge: " + sinks.size() + " stream(s)");
+        return 0;
     }
 
     private static int gameLaunch(String[] a) throws Exception {

@@ -18,11 +18,16 @@
 #      syswow64, ddraw.ini via CNC_DDRAW_CONFIG_FILE, DirectDraw colours in Xvfb, game folder unchanged
 #   5. start/stop cycles with the app's code: stdout closed after the number, process ended, socket gone
 #   6. no link syscall in any Xvfb started by the app's code; every syscall checked against Android's arm64 allowlist
-# Usage: test-app-display-qemu.sh <shc-runtime-r6-*.zip> <shc-display-test.exe> <work dir>
+#   4c. game sound: a DirectSound program (two tones) under Wine with the app's ALSA configuration -> winealsa ->
+#      Box64 -> runtime r6's native libasound -> the SHC ALSA plugin (arm64) -> the app's receiver (AudioStreamPump);
+#      the recording must hold both tones; also with sound off the program must not hang
+# Usage: test-app-display-qemu.sh <shc-runtime-r6-*.zip> <shc-display-test.exe> <work dir> [<plugin .so> <shc-audio-test.exe>]
 set -uo pipefail
 ZIP="$(realpath "${1:?runtime zip}")"
 EXE="$(realpath "${2:?shc-display-test.exe}")"
 W="$(mkdir -p "${3:?work dir}" && realpath "$3")"
+PLUGIN="${4:+$(realpath "$4")}"
+AEXE="${5:+$(realpath "$5")}"
 repo="$(cd "$(dirname "$0")/../.." && pwd)"
 core="$repo/app/src/main/java/io/github/saefalasalynbtel198/shcport/core"
 rt="$W/runtime"; st="$W/strace"; logs="$W/xvfb-logs"
@@ -164,6 +169,36 @@ if [ $irc -eq 0 ] && [ -z "$kmiss" ]; then
 else result input-keys "FAIL (not received:$kmiss)"; fi
 
 timeout 120 "$box64" "$wineserver" -k > /dev/null 2>&1; wait $wpid; echo "test program exit $?"
+
+echo "== 4c. game sound: DirectSound -> Wine (winealsa) -> Box64 -> native libasound -> SHC ALSA plugin -> app receiver"
+if [ -n "$PLUGIN" ] && [ -n "$AEXE" ]; then
+  aout="$W/audio-out"; rm -rf "$aout"; mkdir -p "$aout"
+  cli audio-bridge "$W/shc-audio.sock" "$aout" 1500 6 3 > "$W/audio-bridge.txt" 2>&1 &
+  bpid=$!
+  sleep 4
+  printf 'pcm_type.shc {\n  lib "%s"\n}\npcm.!default {\n  type shc\n  socket "%s"\n}\n' "$PLUGIN" "$W/shc-audio.sock" > "$W/asound.conf"
+  cat "$W/asound.conf"
+  mapfile -t AA < <(cli wine-argv "$rt" "$AEXE")
+  overrides="${WINEDLLOVERRIDES:-mscoree,mshtml=d;winemenubuilder.exe=d};winepulse.drv=d"   # as the app with Game sound on: Wine's ALSA driver only
+  (cd "$WINEPREFIX/drive_c" && ALSA_CONFIG_PATH="$W/asound.conf" SHC_AUDIO_DEBUG=1 WINEDLLOVERRIDES="$overrides" \
+    QEMU_STRACE=1 QEMU_LOG_FILENAME="$st/audio.%d" exec timeout 1200 "${AA[@]}" 20 > "$W/audio-test.log" 2>&1); arc=$?
+  touch "$aout/stop"; wait $bpid
+  grep -E "audio-test:|shc-audio:|alsa|ALSA|winealsa|dsound|mmdevapi" "$W/audio-test.log" | head -40
+  cat "$W/audio-bridge.txt"
+  python3 -I "$repo/scripts/ci/check-audio.py" --gaps-info "$aout" 8 440 880 | tee "$W/audio-check.txt"; crc=${PIPESTATUS[0]}
+  if [ $arc -eq 42 ] && [ $crc -eq 0 ]; then
+    result audio "PASS (DirectSound 440 Hz @22050 mono + 880 Hz @44100 stereo, mixed by Wine, through winealsa, Box64's libasound wrapper, runtime r6's native libasound and the SHC plugin reached the app's receiver as 16-bit PCM; both tones present; output paused 3 s and resumed)"
+  else result audio "FAIL (test program exit $arc, recording checks exit $crc)"; fi
+  # Game sound off: no usable ALSA configuration (as on Android without the plugin): the program must still finish
+  (cd "$WINEPREFIX/drive_c" && ALSA_CONFIG_PATH=/nonexistent/asound.conf WINEDLLOVERRIDES="$overrides" \
+    QEMU_STRACE=1 QEMU_LOG_FILENAME="$st/audio-off.%d" exec timeout 900 "${AA[@]}" 4 > "$W/audio-off.log" 2>&1); orc=$?
+  grep "audio-test:" "$W/audio-off.log" | tail -2
+  if [ $orc -eq 42 ] || [ $orc -eq 43 ]; then result audio-off "PASS (without a sound output the program finished, exit $orc: no hang)"
+  else result audio-off "FAIL (exit $orc)"; fi
+  timeout 120 "$box64" "$wineserver" -k > /dev/null 2>&1
+else
+  echo "(skipped: no plugin / test program given)"
+fi
 
 echo "== 4b. step 3.3 game launch path with a stand-in game (the runtime's DirectDraw program named like the game)"
 sgame="$W/standin-game"; rm -rf "$sgame"; mkdir -p "$sgame/gm" "$sgame/maps"
