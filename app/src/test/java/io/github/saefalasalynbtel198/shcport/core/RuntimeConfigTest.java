@@ -26,6 +26,15 @@ public class RuntimeConfigTest {
         assertTrue(p.env.get("WINEDLLOVERRIDES").endsWith(";ddraw=n"));  // cnc-ddraw only, no silent fallback
         assertEquals("C:\\shc-port\\ddraw.ini", p.env.get("CNC_DDRAW_CONFIG_FILE"));
         assertTrue(p.env.get("WINEDEBUG").contains("+loaddll"));
+        assertTrue(p.env.get("WINEDEBUG").contains("+seh"));
+        assertTrue(p.env.get("WINEDEBUG").contains("+relay"));
+        assertEquals("1", p.env.get("BOX64_SHOWSEGV"));
+        // the relay trace is limited to the calls that explain an exit (no slowdown from tracing everything)
+        java.util.List<String> reg = p.relayArgv();
+        assertEquals(p.argv.subList(0, 2), reg.subList(0, 2));
+        assertEquals(java.util.Arrays.asList("reg", "add", "HKCU\\Software\\Wine\\Debug", "/v", "RelayInclude"), reg.subList(2, 7));
+        assertTrue(WineLaunchPlan.RELAY_INCLUDE.contains("ExitProcess;"));
+        assertTrue(WineLaunchPlan.RELAY_INCLUDE.contains("CreateWindowExA;"));
         assertEquals(game.getPath(), p.dosDeviceLinks.get("/data/app/files/prefix/wine/dosdevices/d:"));
         assertEquals(game, p.workingDirectory);
         // nothing of the port goes into the game folder

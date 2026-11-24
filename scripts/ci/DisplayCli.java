@@ -23,6 +23,7 @@ import io.github.saefalasalynbtel198.shcport.core.XvfbStarter;
  *     processes (prefix: e.g. the hard-link filter); leaves Xvfb running, prints "display N" and "pid P"
  *   cycle <runtime> <fbbase> <logdir> <rounds> [-- prefix...]: start on :37, check stdout, stop, check cleanup
  *   game-launch <runtime> <prefix> <gamedir> <exe> <tmp> <display> <fbfile> <logdir>: step 3.3 with a stand-in game
+ *       (synced into <gamedir>-private with SHA-256 verification and launched from there, as the app does)
  *     (the runtime's DirectDraw program under the game's name): the app's WineLaunchPlan + GameSetup + manifest,
  *     the DirectDraw pre-check as the app runs it, then the "game" from D:
  *   prefix-init <runtime> <prefix> <tmp> [--no-parent]: the display test's prefix stage (WinePrefixSetup +
@@ -277,13 +278,31 @@ public final class DisplayCli {
         io.github.saefalasalynbtel198.shcport.core.GameFolderManifest before =
                 io.github.saefalasalynbtel198.shcport.core.GameFolderManifest.snapshot(game);
         System.out.println("game folder before: " + before.summary());
+        // as in the app: Wine runs the game from a verified private copy (Android shared storage is noexec)
+        File priv = new File(game.getParentFile(), game.getName() + "-private");
+        io.github.saefalasalynbtel198.shcport.core.PrivateGameCopy.Result c1 =
+                io.github.saefalasalynbtel198.shcport.core.PrivateGameCopy.sync(game, priv, -1, null);
+        io.github.saefalasalynbtel198.shcport.core.PrivateGameCopy.Result c2 =
+                io.github.saefalasalynbtel198.shcport.core.PrivateGameCopy.sync(game, priv, -1, null);
+        String srcSha = io.github.saefalasalynbtel198.shcport.core.PrivateGameCopy.sha256(new File(game, exe));
+        String cpySha = c1.ok ? io.github.saefalasalynbtel198.shcport.core.PrivateGameCopy.sha256(new File(priv, exe)) : "-";
+        boolean copyOk = c1.ok && c2.ok && c1.copied == c1.files && c2.copied == 0 && c2.executablesVerified >= 1 && srcSha.equals(cpySha);
+        System.out.println("private copy: first " + (c1.ok ? c1.summary() : "FAILED " + c1.error) + "; second "
+                + (c2.ok ? c2.summary() : "FAILED " + c2.error) + "; exe SHA-256 " + srcSha + " / " + cpySha);
+        System.out.println("check private copy (SHA-256 verified, reused on the second run, executables re-verified): " + (copyOk ? "PASS" : "FAIL"));
+        if (!copyOk) return 1;
         io.github.saefalasalynbtel198.shcport.core.WineLaunchPlan plan = io.github.saefalasalynbtel198.shcport.core.WineLaunchPlan
-                .build(rt, prefix, game, exe, tmp, display, Arrays.asList("ddraw", "10"));
+                .build(rt, prefix, priv, exe, tmp, display, Arrays.asList("ddraw", "10"));
         io.github.saefalasalynbtel198.shcport.core.GameSetup.Result sr = io.github.saefalasalynbtel198.shcport.core.GameSetup
                 .prepare(plan, new io.github.saefalasalynbtel198.shcport.core.CncDdrawConfig());
         System.out.print(sr.report);
         System.out.println("check setup: " + (sr.ok ? "PASS" : "FAIL"));
         if (!sr.ok) return 1;
+        Process reg = new ProcessBuilder(plan.relayArgv()).directory(rt.root).redirectErrorStream(true)
+                .redirectOutput(new File(logs, "relay-reg.log")).start();
+        reg.getOutputStream().close();
+        boolean regDone = reg.waitFor(30, java.util.concurrent.TimeUnit.MINUTES);
+        System.out.println("relay filter (reg add RelayInclude): exit " + (regDone ? reg.exitValue() : -1));
         // 1. the app's DirectDraw pre-check: runtime program by Unix path, cwd = runtime
         bad += ddrawRun("precheck", plan.argvFor(rt.guiSmoke().getPath(), Arrays.asList("ddraw", "10")), rt.root, plan.env,
                 fb, new File(logs, "precheck.log"));
@@ -302,7 +321,13 @@ public final class DisplayCli {
         System.out.println("check +loaddll shows ddraw.dll loaded native (cnc-ddraw from the prefix, not Wine's builtin): " + (nativeDdraw ? "PASS" : "FAIL"));
         if (!nativeDdraw) bad++;
         System.out.println("info: game module loaded from D: " + cwdD);
-        boolean iniHere = new File(game, "ddraw.ini").exists() || new File(plan.ddrawTarget.getParentFile(), "ddraw.ini").exists();
+        io.github.saefalasalynbtel198.shcport.core.GameExitAnalysis ea = io.github.saefalasalynbtel198.shcport.core.GameExitAnalysis.parse(gameLog);
+        for (String l : ea.lines()) System.out.println("exit analysis: " + l);
+        boolean exitSeen = false;
+        for (String e : ea.exits) if (e.contains("ExitProcess(0000002a)")) exitSeen = true;   // the stand-in ends with 42
+        System.out.println("check relay trace shows the program's ExitProcess(42) (exit diagnostics work under Box64/WoW64): " + (exitSeen ? "PASS" : "FAIL"));
+        if (!exitSeen) bad++;
+        boolean iniHere = new File(game, "ddraw.ini").exists() || new File(priv, "ddraw.ini").exists() || new File(plan.ddrawTarget.getParentFile(), "ddraw.ini").exists();
         System.out.println("check no ddraw.ini next to the game or in syswow64 (CNC_DDRAW_CONFIG_FILE honoured): " + (iniHere ? "FAIL" : "PASS"));
         if (iniHere) bad++;
         io.github.saefalasalynbtel198.shcport.core.GameFolderManifest.Diff d = before.compareTo(

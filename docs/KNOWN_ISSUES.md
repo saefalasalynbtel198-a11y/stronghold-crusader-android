@@ -56,9 +56,13 @@
 * Xvfb is a patched copy of Debian's binary (three path strings); if Debian changes the binary layout the patch
   step fails the build instead of producing a broken package.
 
-## Game launch test (0.3.6-dev.1)
+## Game launch test (0.3.6 – 0.3.7)
 
-* Not yet run on a phone with the real game. No input and no sound: the game can only be watched.
+* 0.3.6 on the phone: the real game ended after about 2 s with exit code 0; Wine could not map its code sections
+  executable because the game was on Android shared storage (noexec). 0.3.7 runs it from a SHA-256-verified private
+  copy in internal storage (needs internal space for the whole game folder + 256 MB). Why the game chose to exit is not
+  known yet; the 0.3.7 report's exit analysis is meant to show it. 0.3.7 is not yet run on the phone.
+* Not yet seen running on a phone with the real game. No input and no sound: the game can only be watched.
 * Wine has no audio driver on Android; the game's sound libraries may fail or wait at start-up.
 * Intro videos (Bink) run under Box64 and cannot be skipped yet.
 * The imported 2012 GOG build is older than 1.41 and unverified (UNKNOWN).

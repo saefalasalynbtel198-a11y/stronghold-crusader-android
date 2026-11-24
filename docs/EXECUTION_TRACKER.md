@@ -180,6 +180,8 @@ Last updated: 2026-11-20 (BUILD 2 device report 2: glibc patched for Android sec
    0.3.5-dev.1 on the device: **PASSED** (owner, 2026-11-21).
    Step 3.3: app 0.3.6-dev.1, Runtime → Game launch test (diagnostic; Start Game disabled).
    0.3.6: the app (same ID), standard debug signing (owner's decision); replaces 0.3.5-dev.1 after an uninstall.
+   0.3.6 on the device: pre-check PASS, real game exit 0 after ~2 s, `noexec filesystem?` for the game's EXE/DLLs.
+   0.3.7: private SHA-256-verified game copy in internal storage, exit diagnostics (relay/seh); CI-tested only.
 1. Owner: install app 0.3.5-dev.1 (keep runtime r6), Runtime → Display test → Start, check the screen, pause/resume,
    let it run a few minutes, Stop, Copy report; send the report and a phone screenshot.
 2. Agent: analyse the device report; step 3.3 (touch input) only after step 3.2 passes on the device.

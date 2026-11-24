@@ -80,3 +80,39 @@ Linux/qemu and x86_64 emulator, not Android, not the real game:
   launch from D:\ PASS (exit 42, native ddraw, colours); no ddraw.ini next to the game or in syswow64; game folder
   unchanged; 0 link calls; 48 traces within the Android allowlist.
 * Runtime r6 / Wine / cnc-ddraw regressions: all jobs PASS. No file under runtime/ changed.
+
+## Device result of 0.3.6 and the 0.3.7 fix
+
+Owner's report (0.3.6, runtime r6, Xiaomi 25053PC47G, Android 16): runtime, prefix, Xvfb and the DirectDraw pre-check
+PASS; the real game process ended after about 2 s with exit code 0. The Wine log contains
+`err:virtual:map_image_into_view failed to set 60000020 protection on ... noexec filesystem?` for
+`Stronghold Crusader.exe`, `binkw32.dll` and `mss32.dll`. The pasted report was cut off before the end of the Wine log,
+so the reason for the exit itself is not in it.
+
+Verified from the sources of the components in runtime r6:
+* Wine 11 `dlls/ntdll/unix/virtual.c` `map_image_into_view`: the ERR is written when `mprotect` with PROT_EXEC fails
+  for a section; Wine then continues. It appears only for files on `/storage/emulated/0/...` (Android shared storage
+  is mounted noexec), never for the runtime's own programs in internal storage.
+* Box64 v0.3.8 `my_mprotect` updates its page protection only when the host call succeeds; the dynarec
+  (`internalDBGetBlock`) compiles only pages marked executable, otherwise `DynaRun` falls back to the interpreter. The
+  noexec mapping alone does not crash the game; it forces the much slower interpreter for its code.
+* wineserver gives exit code 1 to a process that dies without calling ExitProcess (`kill_process`, violent). Exit code
+  0 means the game ended itself (ExitProcess(0) or returning from WinMain).
+
+Changes in 0.3.7 (runtime r6 unchanged):
+* core/PrivateGameCopy: the imported folder is synced into `files/game-private` (internal storage): each new or changed
+  file is copied through `<name>.shc-partial`, SHA-256 computed while reading the original and again from the written
+  file, fsync, rename. A manifest (size, mtime, SHA-256) lets later launches reuse the copy; EXE/DLL/ASI/M3D/FLT files
+  are hashed again on every launch and recopied if they differ. Files the game creates in the copy are kept. Free space
+  is checked first. Symlinks are not followed. The imported folder is only read and still compared before/after.
+* WineLaunchPlan: D: and the working directory point to the private copy.
+  `WINEDEBUG=err+all,fixme-all,+loaddll,+seh,+relay`, with `HKCU\Software\Wine\Debug\RelayInclude` limited to
+  ExitProcess, TerminateProcess, MessageBox*, CreateWindowEx*, ShowWindow, CreateFile*, CreateProcess*, WinExec,
+  ShellExecuteA, CreateMutexA, FindWindowA, GetDriveTypeA, DirectDrawCreate(Ex). `BOX64_SHOWSEGV=1`,
+  `BOX64_DYNAREC_MISSING=1`.
+* core/GameExitAnalysis: the report's "Why the game ended / what it did" section (ExitProcess code and caller, windows,
+  message boxes, files that could not be opened, exceptions, noexec sections, Box64 messages) and the last 60 log lines.
+
+CI cannot reproduce the noexec error (qemu-user maps PROT_EXEC to PROT_READ on the host). CI checks the copy (SHA-256,
+reuse, re-verification, source unchanged), the launch from the private copy, and that the relay trace shows the
+stand-in's ExitProcess(42) under Box64/WoW64. Whether the real game now runs can only be seen on the phone.

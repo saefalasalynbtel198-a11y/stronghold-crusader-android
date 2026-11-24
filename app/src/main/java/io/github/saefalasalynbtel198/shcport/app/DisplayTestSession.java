@@ -27,7 +27,9 @@ import io.github.saefalasalynbtel198.shcport.core.CncDdrawConfig;
 import io.github.saefalasalynbtel198.shcport.core.DisplayStartOrder;
 import io.github.saefalasalynbtel198.shcport.core.DisplayTestPattern;
 import io.github.saefalasalynbtel198.shcport.core.FrameProbe;
+import io.github.saefalasalynbtel198.shcport.core.GameExitAnalysis;
 import io.github.saefalasalynbtel198.shcport.core.GameFolderManifest;
+import io.github.saefalasalynbtel198.shcport.core.PrivateGameCopy;
 import io.github.saefalasalynbtel198.shcport.core.GameSetup;
 import io.github.saefalasalynbtel198.shcport.core.RuntimeLayout;
 import io.github.saefalasalynbtel198.shcport.core.RuntimeProbe;
@@ -265,21 +267,38 @@ final class DisplayTestSession {
             fail("cannot read the game folder: " + e.getMessage());
             return false;
         }
+        // Android's shared storage (where the import puts the game) does not allow executable mappings; Wine runs
+        // the game from a verified private copy in internal storage instead (PrivateGameCopy).
+        set(State.PREPARING, "Checking the private copy of the game");
+        long free = new android.os.StatFs(paths.privateGameDir().getParentFile().getPath()).getAvailableBytes();
+        PrivateGameCopy.Result cr = PrivateGameCopy.sync(gameDir, paths.privateGameDir(), free,
+                m -> listener.onState(State.PREPARING, m));
+        copyReport = cr.ok ? cr.summary() : "FAILED: " + cr.error;
+        log("private game copy (" + paths.privateGameDir() + "): " + copyReport);
+        if (!cr.ok) {
+            fail("the private copy of the game could not be prepared: " + cr.error);
+            return false;
+        }
         return true;
     }
+
+    String copyReport = "not made";
 
     /**
      * Setup inside the prefix, the DirectDraw pre-check (the runtime's own DirectDraw program through the same
      * cnc-ddraw setup: must load cnc-ddraw from syswow64 and show its four colours), then the game.
      */
     private boolean gameStage() throws InterruptedException {
-        plan = WineLaunchPlan.build(rt, prefix, paths.gameDir(), gameExe.name, paths.tmpDir(), x11.display,
+        plan = WineLaunchPlan.build(rt, prefix, paths.privateGameDir(), gameExe.name, paths.tmpDir(), x11.display,
                 java.util.Collections.<String>emptyList());
         set(State.STARTING_WINE, "Preparing the game in the Wine prefix (the game folder is not changed)");
         GameSetup.Result sr = GameSetup.prepare(plan, new CncDdrawConfig());
         setupReport = sr.report;
         log("game setup:\n" + sr.report.trim());
         if (!sr.ok) { fail("game setup failed (see the log)"); return false; }
+        // limit Wine's relay trace to the functions that show how the game ends (WineLaunchPlan.RELAY_INCLUDE)
+        String rel = run("reg add RelayInclude", plan.relayArgv(), plan.env, 120);
+        log("relay trace filter: " + rel);
 
         set(State.STARTING_WINE, "DirectDraw pre-check: cnc-ddraw with the runtime's test program");
         File pcLog = new File(paths.logsDir(), "game-ddraw-check-" + stamp + ".log");
@@ -586,16 +605,27 @@ final class DisplayTestSession {
             r.append("Snapshots of the X screen: ").append(snapshots.isEmpty() ? "none" : String.join(", ", snapshots)).append('\n');
         }
         r.append("Setup inside the Wine prefix:\n").append(setupReport);
+        r.append("Private copy of the game (internal storage, launched from there): ").append(copyReport).append('\n');
+        String gameLog = wineLog == null ? "" : tail(wineLog, 4_000_000);
+        r.append("\nWhy the game ended / what it did:\n");
+        for (String l : GameExitAnalysis.parse(gameLog).lines()) r.append("  ").append(l).append('\n');
+        r.append("\nGame Wine log (last 60 lines):\n").append(lastLines(gameLog, 60)).append('\n');
         r.append("\nGame log digest:\n").append(gameLogDigest());
-        r.append("\nlogcat (this app: SELinux, seccomp, crashes):\n").append(logcat()).append('\n');
+        r.append("\nlogcat (this app: denials, seccomp, crashes):\n").append(logcat()).append('\n');
         r.append("\nTimeline:\n");
         for (String t : timeline) r.append(t).append('\n');
         r.append("\nLog:\n");
         synchronized (report) {
             r.append(report);
         }
-        if (wineLog != null) r.append("\nGame Wine log (end):\n").append(tail(wineLog, 4000)).append('\n');
         return r.toString();
+    }
+
+    private static String lastLines(String text, int n) {
+        String[] l = text.split("\n");
+        StringBuilder b = new StringBuilder();
+        for (int i = Math.max(0, l.length - n); i < l.length; i++) b.append(l[i]).append('\n');
+        return b.length() == 0 ? "(empty)\n" : b.toString();
     }
 
     void save(String text) {
@@ -621,9 +651,10 @@ final class DisplayTestSession {
                 String line;
                 while ((line = r.readLine()) != null) {
                     String l = line.toLowerCase(Locale.ROOT);
+                    if (l.contains("granted")) continue;   // "avc: granted { execute }" lines are normal noise
                     if (l.contains("avc:") || l.contains("seccomp") || l.contains("sigsys") || l.contains("fatal signal")
                             || l.contains("xvfb") || l.contains("tombstone")) {
-                        if (n++ < 60) sb.append(line).append('\n');
+                        if (n++ < 30) sb.append(line).append('\n');
                     }
                 }
             }

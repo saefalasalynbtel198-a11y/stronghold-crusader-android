@@ -1,5 +1,22 @@
 # Release notes
 
+## 0.3.7 — fix attempt for the real-game launch failure of 0.3.6 (development build, not yet a playable game)
+
+* Device report of 0.3.6 (owner, Xiaomi 25053PC47G, Android 16): DirectDraw pre-check PASS; the real game exited after
+  about 2 s with exit code 0. Wine logged `map_image_into_view failed to set 60000020 protection ... noexec filesystem?`
+  for `Stronghold Crusader.exe`, `binkw32.dll` and `mss32.dll`.
+* Verified cause of those errors: the game was loaded from Android shared storage (`/storage/emulated/0/...`), which
+  does not allow executable mappings. Wine's own test programs, run from internal storage, never show this error.
+* Fix: the game launch test now runs the game from a **private copy in the app's internal storage**
+  (`files/game-private`), made file by file through a temporary file, each file checked with SHA-256 against the
+  original before it is used. The copy is reused on later launches (only new or changed files are copied again; EXE/DLL
+  files are re-checked every time). Free space is checked first. Wine's D: points to the private copy. The imported
+  game folder is only read and is still compared before and after the launch.
+* Diagnostics for the clean exit: a Wine relay trace limited to ExitProcess/TerminateProcess, message boxes,
+  window creation, CreateFile, process start and DirectDrawCreate; exception trace (+seh); Box64 crash messages. The
+  report now begins with "Why the game ended / what it did" and the last 60 lines of the game's Wine log.
+* No runtime change (r6). Start Game stays disabled. 0.3.6 must be uninstalled first (debug key of each build differs).
+
 ## 0.3.6 — SHC Port: game launch test (development build, not yet a playable game)
 
 * App "SHC Port", package `io.github.saefalasalynbtel198.shcport`, version 0.3.6, signed with the standard Android

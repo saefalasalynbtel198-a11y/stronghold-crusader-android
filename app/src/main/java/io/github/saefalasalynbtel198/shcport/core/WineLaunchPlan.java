@@ -24,7 +24,15 @@ public final class WineLaunchPlan {
     /** Windows path of the generated ddraw.ini (inside the prefix). */
     public static final String DDRAW_INI_DOS = "C:\\shc-port\\ddraw.ini";
     public static final String DLL_OVERRIDES = "mscoree,mshtml=d;winemenubuilder.exe=d;ddraw=n";
-    public static final String WINEDEBUG = "err+all,fixme-all,+loaddll";
+    /**
+     * Diagnostics of the game process: errors, DLL loading, exceptions, and relay traces of the few functions in
+     * {@link #RELAY_INCLUDE} (Wine traces only those, set in the prefix's registry by {@link #relayArgv}).
+     */
+    public static final String WINEDEBUG = "err+all,fixme-all,+loaddll,+seh,+relay";
+    /** Functions traced by +relay: how and why the game ends, its windows, message boxes, files and processes. */
+    public static final String RELAY_INCLUDE = "ExitProcess;TerminateProcess;MessageBoxA;MessageBoxW;MessageBoxExA;MessageBoxExW;"
+            + "CreateWindowExA;CreateWindowExW;ShowWindow;CreateFileA;CreateFileW;CreateProcessA;CreateProcessW;WinExec;"
+            + "ShellExecuteA;CreateMutexA;FindWindowA;GetDriveTypeA;DirectDrawCreate;DirectDrawCreateEx";
 
     public final List<String> argv;
     public final Map<String, String> env;
@@ -69,6 +77,8 @@ public final class WineLaunchPlan {
         env.put("WINEDLLOVERRIDES", DLL_OVERRIDES);
         env.put("WINEDEBUG", WINEDEBUG);
         env.put("CNC_DDRAW_CONFIG_FILE", DDRAW_INI_DOS);
+        env.put("BOX64_SHOWSEGV", "1");           // details of crashes inside the emulated code
+        env.put("BOX64_DYNAREC_MISSING", "1");    // x86 instructions Box64 cannot translate
 
         Map<String, String> links = new LinkedHashMap<>();
         links.put(new File(prefixDir, "dosdevices/d:").getPath(), gameDir.getPath());
@@ -93,6 +103,12 @@ public final class WineLaunchPlan {
             if (!nativeOnly || low.endsWith(": native")) return l.trim();
         }
         return null;
+    }
+
+    /** reg.exe command that limits +relay to {@link #RELAY_INCLUDE} (HKCU\Software\Wine\Debug, RelayInclude). */
+    public List<String> relayArgv() {
+        return Arrays.asList(argv.get(0), argv.get(1), "reg", "add", "HKCU\\Software\\Wine\\Debug", "/v", "RelayInclude",
+                "/t", "REG_SZ", "/d", RELAY_INCLUDE, "/f");
     }
 
     /** Same environment and DirectDraw setup, for a program outside the game folder (the DirectDraw pre-check). */
