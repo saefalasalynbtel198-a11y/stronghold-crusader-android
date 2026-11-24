@@ -172,6 +172,7 @@ public final class MainActivity extends Activity implements GameImporter.Listene
         lastInstallation = inst;
         gameStatus.setText(inst.present ? "Imported to " + app.paths().gameDir() + "\n\n" + inst.describe() : inst.describe());
         playButton.setEnabled(ready.canStart);
+        android.util.Log.i(ShcApplication.TAG, "Start Game " + (ready.canStart ? "enabled" : "disabled") + ": " + ready.reason);
         playButton.setText(app.playLife.active() ? "Return to the game" : "Start Game");
         playReason.setText(ready.reason + "\n" + String.join("\n", ready.checklist));
     }
