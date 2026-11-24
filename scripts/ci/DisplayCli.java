@@ -334,7 +334,7 @@ public final class DisplayCli {
             Thread.sleep(2500);
 
             // 5. double tap
-            t.down(512, 384); t.sleep(60); t.up(512, 384); t.sleep(120);
+            t.down(512, 384); t.sleep(60); t.up(512, 384); t.sleep(60);
             t.down(518, 388); t.sleep(60); t.up(518, 388);
             System.out.println("gesture double tap at 512,384 sent");
             Thread.sleep(2500);

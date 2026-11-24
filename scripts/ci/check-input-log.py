@@ -101,6 +101,24 @@ for msg, _, _ in ev:
         state[b] = 0
 check("every press followed by its release, no button left held", order_ok and state == {"L": 0, "R": 0})
 
+# polled state, as a game that reads the mouse once per frame sees it (the 0.4.0 phone bug)
+def polled_down(button, t_from, t_to):
+    idx = 0 if button == "L" else 1
+    return any(p[idx] == "down" and t_from - 5 <= int(p[2]) <= t_to + 60 for p in polls)
+
+
+i = find("WM_LBUTTONDOWN", "100,700")
+j = find("WM_LBUTTONUP", "100,700", max(i, 0))
+if i >= 0 and j >= 0:
+    print("info: 0.4.0-style instant click seen by the polling reader: %s" % ("yes" if polled_down("L", ev[i][2], ev[j][2] + 200) else "NO (missed, as the game missed it)"))
+i = find("WM_LBUTTONDOWN", "700,500")
+j = find("WM_LBUTTONUP", "700,500", max(i, 0))
+check("tap seen as left button down by a reader polling every 15 ms (as a game per frame)",
+      i >= 0 and j > i and polled_down("L", ev[i][2], ev[j][2]))
+i = find("WM_RBUTTONDOWN", "640,400")
+j = find("WM_RBUTTONUP", "640,400", max(i, 0))
+check("long press seen as right button down by the polling reader", i >= 0 and j > i and polled_down("R", ev[i][2], ev[j][2]))
+
 # polled state (like a game reading the mouse once per frame): informational
 for p in polls[:40]:
     print("  poll left %s right %s t=%s" % p)

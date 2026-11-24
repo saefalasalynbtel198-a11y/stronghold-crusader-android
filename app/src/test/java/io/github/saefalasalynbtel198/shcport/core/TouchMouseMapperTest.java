@@ -159,6 +159,16 @@ public class TouchMouseMapperTest {
     }
 
     @Test
+    public void doubleTapWindowCountsFromTheFirstLiftToTheSecondTouch() {
+        TouchMouseMapper m = mapper(new ControlSettings());
+        m.onTouch(Frame.single(Action.DOWN, 512, 384, 0));
+        m.onTouch(Frame.single(Action.UP, 512, 384, 60));
+        m.onTouch(Frame.single(Action.DOWN, 518, 388, 240));                 // 180 ms after the lift
+        // lifted 360 ms after the first lift (slow second tap): still snapped, so Windows sees a double click
+        assertEquals("[MOVE(512,384), LEFT_DOWN, PAUSE(120), LEFT_UP]", str(m.onTouch(Frame.single(Action.UP, 518, 388, 420))));
+    }
+
+    @Test
     public void tapWithSmallFingerMovementIsStillOneClick() {
         TouchMouseMapper m = mapper(new ControlSettings());
         List<InputAction> out = new ArrayList<>();

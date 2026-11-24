@@ -236,8 +236,9 @@ public final class TouchMouseMapper {
         switch (state) {
             case PENDING: {
                 float tx = downX, ty = downY;
+                // gap from the first tap's lift to this touch (independent of how long each click is held)
                 boolean isSecondTap = hasLastTap
-                        && f.timeMs - lastTapTime <= settings.doubleTapMs
+                        && downTime - lastTapTime <= settings.doubleTapMs
                         && distance(downX, downY, lastTapX, lastTapY) <= settings.touchSlopPx * 2;
                 if (isSecondTap) {
                     tx = lastTapX;
