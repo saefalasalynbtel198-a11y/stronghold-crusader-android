@@ -195,7 +195,12 @@ Last updated: 2026-11-20 (BUILD 2 device report 2: glibc patched for Android sec
    (docs/AUDIO_AND_RESOLUTION_INVESTIGATION.md); owner chose: sound now, resolution later.
    0.5.0: game sound (ALSA plugin + AudioTrack bridge, Settings → Sound); controls unchanged; CI-tested only.
    0.5.0 on the device: music and effects work, no lag, controls unchanged; very slight stutter (0 Android underruns).
-   0.5.1: plugin keeps the last period "in the device" so Wine inserts no silent lead-ins; CI-tested only.
+   0.5.1: plugin keeps the last period "in the device" so Wine inserts no silent lead-ins.
+   0.5.1 on the device (owner, 2026-11-24): music and sound effects work very well, no noticeable delay; possibly a
+   very minor brief stutter about every 10-20 s (barely noticeable, gameplay unaffected); touch controls fully
+   functional and unaffected. **0.5.1 is the current known-good version** (docs/BASELINE_0.5.1.md, commit 6e1ef56).
+   Owner's instruction: no further audio changes for now; keep runtime r6, display, launch path and touch controls;
+   wait for the owner's next instructions (pending: experienced-player control evaluation; display resolution).
 1. Owner: install app 0.3.5-dev.1 (keep runtime r6), Runtime → Display test → Start, check the screen, pause/resume,
    let it run a few minutes, Stop, Copy report; send the report and a phone screenshot.
 2. Agent: analyse the device report; step 3.3 (touch input) only after step 3.2 passes on the device.

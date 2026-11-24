@@ -1,5 +1,8 @@
 # Known-good baseline: SHC Port 0.4.1 (first playable build)
 
+> Superseded as the current known-good version by 0.5.1 (BASELINE_0.5.1.md), which adds game sound. The launch path,
+> display and control architecture below are unchanged in 0.5.1.
+
 Recorded 2026-11-24. This is the reference state for all later changes: anything that changes the behaviour described
 here must be justified by a reported gameplay problem and checked against it.
 

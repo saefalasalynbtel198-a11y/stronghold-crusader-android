@@ -68,8 +68,9 @@
   building). Comfort of the controls in long play is being evaluated by an experienced player.
 * cnc-ddraw ignores mouse buttons while its cursor lock is off; if the lock is ever lost, the first click only
   re-locks it (a second tap then works).
-* Sound: works on the owner's phone since 0.5.0 (music and effects, no lag). 0.5.1 fixes a slight stutter (silent
-  lead-ins inserted by Wine); not yet heard on the phone. Latency about 150 ms (ALSA buffer + Android output buffer).
+* Sound: works on the owner's phone (0.5.1: music and effects, no noticeable delay). A very minor, brief stutter may
+  remain about every 10-20 s; barely noticeable, gameplay unaffected; left as is by the owner's decision (0.5.1 removed
+  Wine's silent lead-ins, which caused the more frequent stutter of 0.5.0).
 * When the app is in the background, Android may freeze or stop it (no foreground service yet); return to the game
   through Start Game. If Android kills the app, the next start stops leftover Wine/Xvfb processes.
 * The game screen's long press = right click uses the touch settings' long-press time (Control settings).
