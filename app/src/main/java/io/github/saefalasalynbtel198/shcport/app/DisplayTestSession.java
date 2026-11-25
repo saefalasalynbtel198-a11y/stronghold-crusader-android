@@ -25,6 +25,7 @@ import java.util.concurrent.TimeUnit;
 import io.github.saefalasalynbtel198.shcport.BuildConfig;
 import io.github.saefalasalynbtel198.shcport.core.CncDdrawConfig;
 import io.github.saefalasalynbtel198.shcport.core.DdrawPrecheck;
+import io.github.saefalasalynbtel198.shcport.core.DisplayResolution;
 import io.github.saefalasalynbtel198.shcport.core.DisplayStartOrder;
 import io.github.saefalasalynbtel198.shcport.core.DisplayTestPattern;
 import io.github.saefalasalynbtel198.shcport.core.FrameProbe;
@@ -63,7 +64,7 @@ final class DisplayTestSession {
     volatile String wineStatus = "not started";
     volatile String xvfbStatus = "not started";
     volatile String error;
-    X11Display x11;
+    volatile X11Display x11;
     Process wine;
     File wineLog;
     String xdpyinfoSummary = "";
@@ -135,7 +136,7 @@ final class DisplayTestSession {
     private File exe;
     private File prefix;
     private String stamp;
-    private File fbFile;
+    private volatile File fbFile;
     /** Report of the Wine prefix stage (also kept when it succeeds). */
     String prefixReport = "";
 
@@ -202,11 +203,40 @@ final class DisplayTestSession {
     }
 
     private boolean xvfbStage(Runnable onXvfbReady) throws InterruptedException {
+        DisplayResolution.Screen want = play && requestedScreen != null ? requestedScreen : null;
+        int w = want != null ? want.width : X11DisplayPlan.WIDTH, h = want != null ? want.height : X11DisplayPlan.HEIGHT;
+        if (want != null) {
+            String bad = DisplayResolution.validate(w, h);
+            log("Display Resolution: " + want.reason + " -> X screen " + w + "x" + h + (bad == null ? "" : " (" + bad + ")"));
+            if (bad != null) {
+                displayNote = w + "x" + h + " not usable (" + bad + "): 1024x768 instead";
+                w = X11DisplayPlan.WIDTH;
+                h = X11DisplayPlan.HEIGHT;
+            }
+        }
+        if (!startXvfb(w, h, onXvfbReady)) {
+            if (!play || (w == X11DisplayPlan.WIDTH && h == X11DisplayPlan.HEIGHT)) return false;
+            // the chosen size did not start: the known-good 1024x768 instead
+            displayNote = w + "x" + h + " could not be started (" + xvfbStatus + "): 1024x768 instead";
+            log("Display Resolution fallback: " + displayNote);
+            stopForFallback();
+            state = State.STARTING_XVFB;
+            error = null;
+            return startXvfb(X11DisplayPlan.WIDTH, X11DisplayPlan.HEIGHT, onXvfbReady);
+        }
+        return true;
+    }
+
+    /** Starts Xvfb at w×h and checks its framebuffer has that size; false (state FAILED) otherwise. */
+    private boolean startXvfb(int w, int h, Runnable onXvfbReady) throws InterruptedException {
         // in a new framebuffer directory for this session (older ones removed)
         File fbRoot = new File(paths.internalRoot(), "x11-fb");
         deleteTree(fbRoot);
-        File fbDir = new File(fbRoot, stamp);
-        x11 = new X11Display(rt, fbDir, new File(paths.logsDir(), "display-xvfb-" + stamp + ".log"));
+        String sfx = w == X11DisplayPlan.WIDTH && h == X11DisplayPlan.HEIGHT ? "" : "-" + w + "x" + h;
+        File fbDir = new File(fbRoot, stamp + sfx);
+        x11 = new X11Display(rt, fbDir, new File(paths.logsDir(), "display-xvfb-" + stamp + sfx + ".log"));
+        x11.width = w;
+        x11.height = h;
         set(State.STARTING_XVFB, "Starting Xvfb");
         log("Xvfb working directory check: " + x11.preflight());
         String why = x11.start(120_000);
@@ -229,11 +259,22 @@ final class DisplayTestSession {
             Thread.currentThread().interrupt();
         }
         log("Xvfb stdout: " + x11.stdout.afterLineSummary());
-        fbFile = x11.framebufferFile();
-        log("framebuffer file: " + fbFile + " (" + fbFile.length() + " bytes)");
+        File f = x11.framebufferFile();
+        log("framebuffer file: " + f + " (" + f.length() + " bytes)");
+        String size = framebufferSize(f);
+        if (!size.equals(w + "x" + h)) {
+            xvfbStatus = "framebuffer is " + size + ", expected " + w + "x" + h;
+            log("Xvfb " + xvfbStatus);
+            fail("Xvfb: " + xvfbStatus);
+            return false;
+        }
+        screenW = w;
+        screenH = h;
+        fbFile = f;
         xdpyinfoSummary = xdpyinfo();
         log("xdpyinfo: " + xdpyinfoSummary);
-        onXvfbReady.run();
+        if (play) onXvfbReadyLater = onXvfbReady;   // after the pre-check: a fallback may still restart Xvfb
+        else onXvfbReady.run();
         return true;
 
     }
@@ -301,16 +342,54 @@ final class DisplayTestSession {
     Map<String, String> gameEnv;
     /** Added to the game's environment in play mode (game sound: ALSA_CONFIG_PATH). Set before {@link #start}. */
     final Map<String, String> extraGameEnv = new java.util.LinkedHashMap<>();
+    /** Play mode: the X screen the Display Resolution setting asks for, and why (set before {@link #start}). */
+    volatile DisplayResolution.Screen requestedScreen;
+    /** The X screen actually running (after Xvfb started; 0 before) and what happened on the way (fallback). */
+    volatile int screenW, screenH;
+    volatile String displayNote = "";
+    private Runnable onXvfbReadyLater;
 
     /**
      * Setup inside the prefix, the DirectDraw pre-check (the runtime's own DirectDraw program through the same
      * cnc-ddraw setup: must load cnc-ddraw from syswow64 and show its four colours), then the game.
      */
     private boolean gameStage() throws InterruptedException {
+        if (!prepareAndPrecheck()) {
+            boolean other = screenW != X11DisplayPlan.WIDTH || screenH != X11DisplayPlan.HEIGHT;
+            if (!play || !other || x11 == null) return false;
+            // the chosen size failed the DirectDraw check: the known-good 1024x768 instead (Xvfb restarted)
+            displayNote = screenW + "x" + screenH + " failed the DirectDraw check (" + precheckResult + "): 1024x768 instead";
+            log("Display Resolution fallback: " + displayNote);
+            Runnable ready = onXvfbReadyLater;
+            stopForFallback();
+            error = null;
+            if (!startXvfb(X11DisplayPlan.WIDTH, X11DisplayPlan.HEIGHT, ready) || !prepareAndPrecheck()) return false;
+        }
+        shownFb = fbFile;                         // the screen now shows the display the game uses
+        if (onXvfbReadyLater != null) {
+            onXvfbReadyLater.run();               // and input attaches to it
+            onXvfbReadyLater = null;
+        }
+        return launchGame();
+    }
+
+    /** Stops the Xvfb of a failed screen size; x11 is cleared first so {@link #poll} does not report its exit. */
+    private void stopForFallback() {
+        X11Display old = x11;
+        x11 = null;
+        fbFile = null;
+        screenW = 0;
+        screenH = 0;
+        if (old != null) old.stop();
+    }
+
+    /** Setup in the prefix for the running X screen, and the DirectDraw pre-check (or its earlier PASS). */
+    private boolean prepareAndPrecheck() throws InterruptedException {
         plan = WineLaunchPlan.build(rt, prefix, paths.privateGameDir(), gameExe.name, paths.tmpDir(), x11.display,
                 java.util.Collections.<String>emptyList());
         set(State.STARTING_WINE, "Preparing the game in the Wine prefix (the game folder is not changed)");
-        GameSetup.Result sr = GameSetup.prepare(plan, new CncDdrawConfig());
+        int sw = screenW > 0 ? screenW : X11DisplayPlan.WIDTH, sh = screenH > 0 ? screenH : X11DisplayPlan.HEIGHT;
+        GameSetup.Result sr = GameSetup.prepare(plan, new CncDdrawConfig().forScreen(sw, sh));
         setupReport = sr.report;
         log("game setup:\n" + sr.report.trim());
         if (!sr.ok) { fail("game setup failed (see the log)"); return false; }
@@ -334,12 +413,14 @@ final class DisplayTestSession {
 
         String key = precheckKey();
         if (play && key.equals(readText(precheckMarker()))) {
-            precheckResult = "PASS earlier with this runtime, cnc-ddraw and app version (not repeated; the Game launch test always runs it)";
+            precheckResult = "PASS earlier with this runtime, cnc-ddraw, app version and screen size (not repeated; the Game launch test always runs it)";
             log("DirectDraw pre-check: " + precheckResult);
-        } else if (!precheck()) {
-            return false;
+            return true;
         }
+        return precheck();
+    }
 
+    private boolean launchGame() throws InterruptedException {
         set(State.STARTING_WINE, "Starting the game: " + gameExe.name);
         wineLog = new File(paths.logsDir(), "game-wine-" + stamp + ".log");
         log("game command (cwd " + plan.workingDirectory + " = D:\\): " + argvForLog(plan.argv) + "; DISPLAY=" + plan.env.get("DISPLAY")
@@ -401,7 +482,8 @@ final class DisplayTestSession {
     /** What a passed pre-check depends on: runtime version, cnc-ddraw and test program files, app version. */
     private String precheckKey() {
         return readText(rt.versionFile()) + "|" + rt.cncDdraw().length() + "/" + rt.cncDdraw().lastModified() + "|"
-                + rt.guiSmoke().length() + "/" + rt.guiSmoke().lastModified() + "|" + BuildConfig.VERSION_CODE;
+                + rt.guiSmoke().length() + "/" + rt.guiSmoke().lastModified() + "|" + BuildConfig.VERSION_CODE
+                + "|" + screenW + "x" + screenH;
     }
 
     private static void writeText(File f, String text) {
@@ -414,11 +496,24 @@ final class DisplayTestSession {
 
     private long gameStartMs;
 
+    /** "WxH" from the XWD header of Xvfb's framebuffer file, or why it could not be read. */
+    private static String framebufferSize(File f) {
+        try (java.io.RandomAccessFile raf = new java.io.RandomAccessFile(f, "r");
+             java.nio.channels.FileChannel ch = raf.getChannel()) {
+            XwdFramebuffer fb = XwdFramebuffer.parse(ch.map(java.nio.channels.FileChannel.MapMode.READ_ONLY, 0, ch.size()));
+            return fb.width + "x" + fb.height;
+        } catch (Exception e) {
+            return "unreadable (" + e.getMessage() + ")";
+        }
+    }
+
     /** Xvfb's display number once it runs (-1 before). */
     int display() { return x11 == null ? -1 : x11.display; }
 
-    /** The framebuffer file once Xvfb runs (null before). */
-    File framebuffer() { return fbFile; }
+    /** The framebuffer to draw; in play mode only once the X screen the game uses is settled (after the pre-check). */
+    File framebuffer() { return play ? shownFb : fbFile; }
+
+    private volatile File shownFb;
 
     /** Maps the framebuffer read-only and runs a check on it; null if it cannot be read. */
     private <T> T withFrame(java.util.function.BiFunction<XwdFramebuffer, java.nio.ByteBuffer, T> f) {
@@ -647,6 +742,22 @@ final class DisplayTestSession {
         return r.toString();
     }
 
+    /** Setting, X screen, fallback and where the picture sits in the view (for the report and the status line). */
+    String displayLine(int viewW, int viewH) {
+        DisplayResolution.Screen want = requestedScreen;
+        StringBuilder b = new StringBuilder();
+        b.append(play ? "setting " + (want == null ? "1024x768 (default)" : want.reason) : "test size 1024x768");
+        b.append("; X screen (game resolution limit) ").append(screenW > 0 ? screenW + "x" + screenH : "not running");
+        if (!displayNote.isEmpty()) b.append("; FALLBACK: ").append(displayNote);
+        if (screenW > 0 && viewW > 0 && viewH > 0) {
+            io.github.saefalasalynbtel198.shcport.core.ViewportTransform v =
+                    new io.github.saefalasalynbtel198.shcport.core.ViewportTransform(screenW, screenH, viewW, viewH);
+            b.append(String.format(Locale.ROOT, "; device view %dx%d, picture %.0fx%.0f at (%.0f,%.0f), scale %.3f",
+                    viewW, viewH, screenW * v.scale, screenH * v.scale, v.offsetX, v.offsetY, v.scale));
+        }
+        return b.toString();
+    }
+
     private String gameReport(FramebufferRenderer.Stats s, int pauses, int resumes, boolean recovered) {
         StringBuilder r = new StringBuilder(play ? "SHC Port " + BuildConfig.VERSION_NAME + " game session (Start Game)\n"
                 : "SHC port game launch test — diagnostic\n");
@@ -655,6 +766,7 @@ final class DisplayTestSession {
                 + " (" + gameExe.classification.label + ")").append('\n');
         r.append("Game files check (before/after): ").append(gameFilesCheck).append('\n');
         r.append("Xvfb: ").append(xvfbStatus).append('\n');
+        r.append("Display Resolution: ").append(displayLine(s.viewWidth, s.viewHeight)).append('\n');
         r.append("DirectDraw pre-check: ").append(precheckResult).append('\n');
         if (!precheckDetails.isEmpty()) r.append(precheckDetails.replaceAll("(?m)^", "  ")).append('\n');
         r.append("Game: ").append(wineStatus).append('\n');

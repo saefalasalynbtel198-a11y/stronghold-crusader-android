@@ -36,6 +36,7 @@ import java.util.List;
 import io.github.saefalasalynbtel198.shcport.core.InputAction;
 import io.github.saefalasalynbtel198.shcport.core.SessionLifecycle;
 import io.github.saefalasalynbtel198.shcport.core.TouchMouseMapper;
+import io.github.saefalasalynbtel198.shcport.core.DisplayResolution;
 import io.github.saefalasalynbtel198.shcport.core.ViewportTransform;
 import io.github.saefalasalynbtel198.shcport.core.X11DisplayPlan;
 import io.github.saefalasalynbtel198.shcport.core.X11Input;
@@ -149,11 +150,17 @@ public final class GameActivity extends Activity implements Choreographer.FrameC
     private boolean wantStart;
 
     private void start() {
+        // Display Resolution (Settings): "Device" needs the size of the game view, known after the first layout
+        DisplayResolution.Mode mode = new DisplaySettingsStore(this).load();
+        if (mode == DisplayResolution.Mode.DEVICE && (surface.getWidth() == 0 || surface.getHeight() == 0)) return;
         SessionLifecycle life = app.playLife;
         if (!life.tryStart()) return;            // a session exists: this screen shows it
         wantStart = false;
         final int gen = life.generation();
         DisplayTestSession s = new DisplayTestSession(this, app.paths(), true, true, (st, msg) -> { });
+        s.requestedScreen = DisplayResolution.resolve(mode, surface.getWidth(), surface.getHeight(),
+                DisplaySettingsStore.totalMemory(this));
+        surface.setGameSize(X11DisplayPlan.WIDTH, X11DisplayPlan.HEIGHT);
         startSound(s);
         app.playSession = s;
         attachedSource = false;
@@ -303,8 +310,13 @@ public final class GameActivity extends Activity implements Choreographer.FrameC
             if (s != null) {
                 s.poll(renderer.stats);
                 if (!attachedSource && s.framebuffer() != null) {
+                    // touches map onto the X screen the game really uses (after any fallback to 1024x768)
+                    surface.setGameSize(s.screenW, s.screenH);
                     renderer.setSource(s.framebuffer());
                     attachedSource = true;
+                    if (!s.displayNote.isEmpty()) {
+                        Toast.makeText(GameActivity.this, "Display Resolution: " + s.displayNote, Toast.LENGTH_LONG).show();
+                    }
                 }
                 if (s.state == DisplayTestSession.State.FAILED && life.phase() == SessionLifecycle.Phase.RUNNING) {
                     life.ended(life.generation(), s.error);
@@ -474,6 +486,8 @@ public final class GameActivity extends Activity implements Choreographer.FrameC
         private final Runnable longPressCheck = this::checkLongPress;
         private TouchMouseMapper mapper;
         private ViewportTransform viewport;
+        /** Size of the X screen shown (Display Resolution); the renderer takes it from the framebuffer itself. */
+        private int gameW = X11DisplayPlan.WIDTH, gameH = X11DisplayPlan.HEIGHT;
 
         PlaySurface(Context c) {
             super(c);
@@ -494,10 +508,18 @@ public final class GameActivity extends Activity implements Choreographer.FrameC
             if (mapper != null) mapper.setSettings(new ControlSettingsStore(getContext()).load());
         }
 
+        void setGameSize(int w, int h) {
+            if (w <= 0 || h <= 0 || (w == gameW && h == gameH)) return;
+            releaseAll();                        // no button stays down across the change
+            gameW = w;
+            gameH = h;
+            if (getWidth() > 0 && getHeight() > 0) onSizeChanged(getWidth(), getHeight(), getWidth(), getHeight());
+        }
+
         @Override
         protected void onSizeChanged(int w, int h, int oldw, int oldh) {
             // the same letterbox geometry as the renderer, so a touch lands on the pixel shown under the finger
-            viewport = new ViewportTransform(X11DisplayPlan.WIDTH, X11DisplayPlan.HEIGHT, w, h);
+            viewport = new ViewportTransform(gameW, gameH, w, h);
             if (mapper == null) {
                 mapper = new TouchMouseMapper(new ControlSettingsStore(getContext()).load(), viewport);
                 mapper.setRightButtonMode(rightMode);

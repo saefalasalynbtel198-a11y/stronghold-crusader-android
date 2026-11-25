@@ -2,6 +2,7 @@ package io.github.saefalasalynbtel198.shcport.app;
 
 import android.app.Activity;
 import android.os.Bundle;
+import android.view.View;
 import android.widget.CompoundButton;
 import android.widget.LinearLayout;
 import android.widget.SeekBar;
@@ -11,6 +12,7 @@ import android.widget.TextView;
 import java.util.Locale;
 
 import io.github.saefalasalynbtel198.shcport.core.ControlSettings;
+import io.github.saefalasalynbtel198.shcport.core.DisplayResolution;
 
 /** Adjusts touch-control sensitivity. Changes are saved immediately. */
 public final class SettingsActivity extends Activity {
@@ -31,6 +33,7 @@ public final class SettingsActivity extends Activity {
     private void build() {
         LinearLayout col = Ui.column(this);
         col.addView(Ui.title(this, "Settings"));
+        buildDisplay(col);
         buildSound(col);
         col.addView(Ui.heading(this, "Touch controls"));
         col.addView(Ui.muted(this, "Try changes on the touch-controls test screen. Defaults keep the original "
@@ -60,6 +63,59 @@ public final class SettingsActivity extends Activity {
             build();
         }));
         setContentView(Ui.scroll(this, col));
+    }
+
+    /**
+     * Display Resolution: the size of the X screen the game draws into. Saved immediately, applied at the next
+     * Start Game; the diagnostic tests always use 1024 × 768.
+     */
+    private void buildDisplay(LinearLayout col) {
+        DisplaySettingsStore store = new DisplaySettingsStore(this);
+        DisplayResolution.Mode current = store.load();
+        android.graphics.Point real = new android.graphics.Point();
+        getWindowManager().getDefaultDisplay().getRealSize(real);
+        int pw = Math.max(real.x, real.y), ph = Math.min(real.x, real.y);
+        long ram = DisplaySettingsStore.totalMemory(this);
+
+        col.addView(Ui.heading(this, "Display Resolution"));
+        col.addView(Ui.muted(this, "The size of the screen the game draws into. The picture always keeps its "
+                + "4:3 shape (or the phone's shape for Device) with black bars where needed, and touches are "
+                + "mapped to it exactly. Changes apply at the next Start Game. Also choose the same resolution in "
+                + "the game's own options, otherwise the game keeps the resolution saved there."));
+        col.addView(Ui.muted(this, String.format(Locale.ROOT, "This phone: display %d × %d pixels, %.1f GB RAM. "
+                + "Device uses the game area beside the side buttons (exact size at Start Game).", pw, ph, ram / 1e9)));
+
+        final TextView now = Ui.body(this, "");
+        android.widget.RadioGroup group = new android.widget.RadioGroup(this);
+        for (DisplayResolution.Mode m : DisplayResolution.Mode.values()) {
+            android.widget.RadioButton rb = new android.widget.RadioButton(this);
+            rb.setId(View.generateViewId());
+            rb.setText(m.label + " — " + DisplayResolution.describe(m));
+            rb.setTextColor(Ui.TEXT);
+            rb.setTag(m);
+            group.addView(rb);
+            if (m == current) rb.setChecked(true);
+        }
+        Runnable show = () -> {
+            DisplayResolution.Mode m = store.load();
+            DisplayResolution.Screen sc = DisplayResolution.resolve(m,
+                    m == DisplayResolution.Mode.DEVICE ? 0 : pw, ph, ram);
+            now.setText("Selected: " + m.label + (m == DisplayResolution.Mode.DEVICE
+                    ? " (about " + pw + " × " + ph + " minus the side buttons)" : " → X screen " + sc));
+        };
+        group.setOnCheckedChangeListener((g, id) -> {
+            View v = g.findViewById(id);
+            if (v == null) return;
+            store.save((DisplayResolution.Mode) v.getTag());
+            show.run();
+        });
+        col.addView(group);
+        col.addView(now);
+        show.run();
+        col.addView(Ui.button(this, "Restore default display (1024 × 768)", v -> {
+            store.restoreDefault();
+            build();
+        }));
     }
 
     /** Game sound: on/off (next Start Game), volume and mute (immediately, also while the game runs). */
