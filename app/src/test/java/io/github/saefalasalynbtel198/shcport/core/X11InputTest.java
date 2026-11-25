@@ -317,8 +317,11 @@ public class X11InputTest {
         for (int[] f : server.fakes) types.add(f[0]);
         assertTrue(types.toString(), types.contains(4) && types.contains(5));   // a left click was sent
         for (int[] f : server.fakes) if (f[0] == 4 || f[0] == 5) assertEquals(1, f[1]);
-        // a touch in the pillar bar clamps to the picture's edge
+        // a tap in the pillar bar sends nothing: no move, no click (0.6.0)
+        int before = server.fakes.size();
         for (InputAction a : m.onTouch(TouchMouseMapper.Frame.single(TouchMouseMapper.Action.DOWN, 5, sy, 5000))) x.send(a);
-        assertEquals(0, x.queryPointer()[0]);
+        for (InputAction a : m.onTouch(TouchMouseMapper.Frame.single(TouchMouseMapper.Action.UP, 5, sy, 5060))) x.send(a);
+        assertEquals(577, x.queryPointer()[0]);
+        assertEquals(before, server.fakes.size());
     }
 }

@@ -58,9 +58,14 @@ public final class X11DisplayPlan {
     }
 
     public static List<String> xvfbArgv(RuntimeLayout rt, int display, File fbDir) {
+        return xvfbArgv(rt, display, fbDir, WIDTH, HEIGHT);
+    }
+
+    /** As {@link #xvfbArgv(RuntimeLayout, int, File)} with another screen size (Display Resolution setting). */
+    public static List<String> xvfbArgv(RuntimeLayout rt, int display, File fbDir, int width, int height) {
         return new ArrayList<>(Arrays.asList(rt.loader().getPath(), "--library-path", rt.nativeLibDir().getPath(),
                 rt.xvfb().getPath(), ":" + display,
-                "-screen", "0", WIDTH + "x" + HEIGHT + "x" + DEPTH,
+                "-screen", "0", width + "x" + height + "x" + DEPTH,
                 "-fbdir", fbDir.getPath(),
                 "-nolisten", "tcp", "-nolisten", "unix",
                 "-extension", "MIT-SHM", "-extension", "GLX",

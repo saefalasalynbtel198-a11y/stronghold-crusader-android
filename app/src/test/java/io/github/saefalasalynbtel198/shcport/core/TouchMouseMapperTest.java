@@ -262,8 +262,25 @@ public class TouchMouseMapperTest {
     public void coordinatesAreMappedThroughViewport() {
         // 1024x768 game on a 2400x1080 screen: scale 1.40625, pillar-box offset 480 px.
         TouchMouseMapper m = new TouchMouseMapper(new ControlSettings(), new ViewportTransform(1024, 768, 2400, 1080));
-        assertEquals("[MOVE(0,0)]", str(m.onTouch(Frame.single(Action.DOWN, 10, 0, 0))));
-        m.onTouch(Frame.single(Action.CANCEL, 0, 0, 1));
+        // 0.6.0: a touch that starts in a black bar does nothing (0.5.1 clicked at the picture's edge)
+        assertEquals("[]", str(m.onTouch(Frame.single(Action.DOWN, 10, 0, 0))));
+        assertEquals("[]", str(m.onTouch(Frame.single(Action.MOVE, 700, 500, 50))));
+        assertEquals("[]", str(m.onTouch(Frame.single(Action.UP, 700, 500, 90))));
         assertEquals("[MOVE(512,384)]", str(m.onTouch(Frame.single(Action.DOWN, 1200, 540, 2))));
+        m.onTouch(Frame.single(Action.CANCEL, 0, 0, 3));
+        // edges: the first and last pixel columns of the picture are inside; one pixel further is the bar
+        assertEquals("[MOVE(0,384)]", str(m.onTouch(Frame.single(Action.DOWN, 480, 540, 10))));
+        m.onTouch(Frame.single(Action.CANCEL, 0, 0, 11));
+        assertEquals("[MOVE(1023,384)]", str(m.onTouch(Frame.single(Action.DOWN, 1919.9f, 540, 20))));
+        m.onTouch(Frame.single(Action.CANCEL, 0, 0, 21));
+        assertEquals("[]", str(m.onTouch(Frame.single(Action.DOWN, 479.5f, 540, 30))));
+        m.onTouch(Frame.single(Action.UP, 479.5f, 540, 31));
+        assertEquals("[]", str(m.onTouch(Frame.single(Action.DOWN, 1920, 540, 40))));
+        m.onTouch(Frame.single(Action.UP, 1920, 540, 41));
+        // a drag that starts on the picture and runs into the bar stops at the edge (as before)
+        m.onTouch(Frame.single(Action.DOWN, 1800, 540, 100));
+        List<InputAction> drag = m.onTouch(Frame.single(Action.MOVE, 2300, 540, 150));
+        assertTrue(str(drag), str(drag).contains("LEFT_DOWN") && str(drag).endsWith("MOVE(1023,384)]"));
+        assertTrue(str(m.onTouch(Frame.single(Action.UP, 2300, 540, 400))).endsWith("LEFT_UP]"));
     }
 }

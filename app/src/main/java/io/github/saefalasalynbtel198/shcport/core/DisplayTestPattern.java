@@ -46,11 +46,15 @@ public final class DisplayTestPattern {
         return checkQuadrants(fb, file, COLORS, NAMES);
     }
 
-    /** Checks four quadrant colours (9 points each). */
+    /**
+     * Checks four quadrant colours (9 points each) of a 1024×768 picture. On another X screen size (Display Resolution
+     * setting) cnc-ddraw scales the 1024×768 picture onto the screen with its aspect ratio kept and centred
+     * (maintas=true), so the quadrants are looked for in that area.
+     */
     public static Check checkQuadrants(XwdFramebuffer fb, ByteBuffer file, int[] colors, String[] names) {
-        if (fb.width != WIDTH || fb.height != HEIGHT) {
-            return new Check(false, "framebuffer is " + fb.width + "x" + fb.height + ", expected 1024x768");
-        }
+        if (fb.width < 64 || fb.height < 48) return new Check(false, "framebuffer is " + fb.width + "x" + fb.height);
+        float s = Math.min((float) fb.width / WIDTH, (float) fb.height / HEIGHT);
+        float ox = (fb.width - WIDTH * s) / 2f, oy = (fb.height - HEIGHT * s) / 2f;
         StringBuilder sb = new StringBuilder();
         boolean ok = true;
         for (int q = 0; q < 4; q++) {
@@ -58,7 +62,9 @@ public final class DisplayTestPattern {
             int bad = 0, centre = 0;
             for (int fx = 1; fx <= 3; fx++) {
                 for (int fy = 1; fy <= 3; fy++) {
-                    int c = fb.rgb(file, x0 + WIDTH / 2 * fx / 4, y0 + HEIGHT / 2 * fy / 4);
+                    int gx = x0 + WIDTH / 2 * fx / 4, gy = y0 + HEIGHT / 2 * fy / 4;
+                    int c = fb.rgb(file, Math.min(fb.width - 1, (int) (ox + (gx + 0.5f) * s)),
+                            Math.min(fb.height - 1, (int) (oy + (gy + 0.5f) * s)));
                     if (fx == 2 && fy == 2) centre = c;
                     if (!close(c, colors[q])) bad++;
                 }

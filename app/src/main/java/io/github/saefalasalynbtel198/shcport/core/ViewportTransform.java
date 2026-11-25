@@ -28,6 +28,12 @@ public final class ViewportTransform {
         return Math.max(0, Math.min(gameWidth - 1, x));
     }
 
+    /** True if the screen point lies on the game picture (not in the black bars). */
+    public boolean contains(float screenX, float screenY) {
+        return screenX >= offsetX && screenX < offsetX + gameWidth * scale
+                && screenY >= offsetY && screenY < offsetY + gameHeight * scale;
+    }
+
     public int toGameY(float screenY) {
         int y = (int) Math.floor((screenY - offsetY) / scale);
         return Math.max(0, Math.min(gameHeight - 1, y));

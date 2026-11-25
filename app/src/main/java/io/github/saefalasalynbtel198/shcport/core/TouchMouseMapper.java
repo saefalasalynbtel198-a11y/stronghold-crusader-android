@@ -134,6 +134,12 @@ public final class TouchMouseMapper {
         downX = f.xs[i];
         downY = f.ys[i];
         downTime = f.timeMs;
+        if (!viewport.contains(downX, downY)) {
+            // a touch that starts in the black bars does nothing (no move, no click) until all fingers are up
+            hasLastTap = false;
+            state = State.WAIT_ALL_UP;
+            return;
+        }
         out.add(moveTo(downX, downY));
         if (rightButtonMode) {
             state = State.RIGHT_HOLD;
