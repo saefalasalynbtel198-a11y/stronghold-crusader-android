@@ -74,6 +74,9 @@ Report line: `Display Resolution: setting …; X screen …; [FALLBACK: …;] de
 * Device resolution is not 4:3: menus designed for 4:3 may be placed differently by the game; it is the heaviest
   option (the game draws up to ~3.4× the pixels of 1024×768).
 * Whether Stronghold Crusader HD 1.41 accepts a non-standard size such as 2616×1280 in its options is not verified.
+* cnc-ddraw offers the game only modes that fit the X screen. At 640 × 480 or 800 × 600 the game's options will not
+  list 1024 × 768; a 1024 × 768 already saved in the game is still set and scaled down (CI: SetDisplayMode OK,
+  clicks at the right pixel), but whether the game itself keeps it or switches to a listed mode is not verified.
 * Larger sizes use more memory: the X framebuffer is width × height × 4 bytes (1024×768 = 3 MB, 2616×1280 = 13 MB),
   plus the same again for the app's upload buffer.
 

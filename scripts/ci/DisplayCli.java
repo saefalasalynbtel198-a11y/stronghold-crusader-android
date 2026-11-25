@@ -752,9 +752,17 @@ public final class DisplayCli {
         String gl = new String(java.nio.file.Files.readAllBytes(log.toPath()), java.nio.charset.StandardCharsets.UTF_8);
         boolean listed = gl.contains("requested mode " + g[0] + "x" + g[1] + " listed");
         boolean modeSet = gl.contains("SetDisplayMode(" + g[0] + "," + g[1] + ",16) 0x00000000");
-        System.out.println("[" + tag + "] check game mode " + a[9] + " offered by DirectDraw and set: " + (listed && modeSet ? "PASS" : "FAIL (listed "
-                + listed + ", set " + modeSet + ")"));
-        if (!listed || !modeSet) bad++;
+        boolean screenListed = gl.contains("ddraw-input: mode " + a[8] + "\n") || gl.contains("ddraw-input: mode " + a[8] + "\r");
+        StringBuilder modes = new StringBuilder();
+        for (String l : gl.split("\n")) if (l.startsWith("ddraw-input: mode ")) modes.append(l.substring(18).trim()).append(' ');
+        System.out.println("[" + tag + "] modes DirectDraw offers the game: " + modes.toString().trim());
+        System.out.println("[" + tag + "] check X screen size " + a[8] + " offered to the game as a mode: " + (screenListed ? "PASS" : "FAIL"));
+        if (!screenListed) bad++;
+        // cnc-ddraw lists only modes that fit the screen; a larger mode saved in the game's options is still set
+        boolean fits = g[0] <= sc[0] && g[1] <= sc[1];
+        System.out.println("[" + tag + "] check game mode " + a[9] + (fits ? " offered and set: " : " (larger than the screen, not offered) set: ")
+                + ((fits ? listed : true) && modeSet ? "PASS" : "FAIL (listed " + listed + ", set " + modeSet + ")"));
+        if ((fits && !listed) || !modeSet) bad++;
         System.out.println("[" + tag + "] check game picture in the X screen (4 colours, aspect kept): " + (pixels != null ? "PASS " + pixels : "FAIL")
                 + " [" + (System.currentTimeMillis() - t0) / 1000 + " s]");
         if (pixels == null) {
@@ -793,15 +801,25 @@ public final class DisplayCli {
                 System.out.println("[" + tag + "] tap game " + t[0] + "," + t[1] + " = X " + xi + "," + yi + " = view " + Math.round(vx) + "," + Math.round(vy) + " -> " + acts);
                 Thread.sleep(4000);
             }
-            // a touch in the black bar left of the picture (the view is wider than the X screen's shape)
-            float bx = vt.offsetX > 8 ? vt.offsetX / 2 : 4, by = vt.offsetY > 8 ? vt.offsetY / 2 : 540;
-            List<io.github.saefalasalynbtel198.shcport.core.InputAction> bar = new ArrayList<>(mapper.onTouch(
+            // a touch in a black bar; when the X screen has the view's shape (Device) there is none, so the bar is
+            // tried on a second view shape (1786x1228, as the CI input test) with the same X screen
+            io.github.saefalasalynbtel198.shcport.core.ViewportTransform bvt = vt;
+            io.github.saefalasalynbtel198.shcport.core.TouchMouseMapper bm = mapper;
+            if (vt.offsetX < 8 && vt.offsetY < 8) {
+                System.out.println("[" + tag + "] info: no black bars on the 2400x1080 view (same shape as the X screen); bar touch tried on 1786x1228");
+                bvt = new io.github.saefalasalynbtel198.shcport.core.ViewportTransform(sc[0], sc[1], 1786, 1228);
+                bm = new io.github.saefalasalynbtel198.shcport.core.TouchMouseMapper(new io.github.saefalasalynbtel198.shcport.core.ControlSettings(), bvt);
+            }
+            float bx = bvt.offsetX >= 8 ? bvt.offsetX / 2 : bvt.gameWidth * bvt.scale / 2, by = bvt.offsetY >= 8 ? bvt.offsetY / 2 : bvt.gameHeight * bvt.scale / 2;
+            boolean inBar = !bvt.contains(bx, by);
+            List<io.github.saefalasalynbtel198.shcport.core.InputAction> bar = new ArrayList<>(bm.onTouch(
                     io.github.saefalasalynbtel198.shcport.core.TouchMouseMapper.Frame.single(io.github.saefalasalynbtel198.shcport.core.TouchMouseMapper.Action.DOWN, bx, by, System.currentTimeMillis() - tt)));
             Thread.sleep(80);
-            bar.addAll(mapper.onTouch(io.github.saefalasalynbtel198.shcport.core.TouchMouseMapper.Frame.single(
+            bar.addAll(bm.onTouch(io.github.saefalasalynbtel198.shcport.core.TouchMouseMapper.Frame.single(
                     io.github.saefalasalynbtel198.shcport.core.TouchMouseMapper.Action.UP, bx, by, System.currentTimeMillis() - tt)));
-            boolean inBar = !vt.contains(bx, by);
             barQuiet = inBar && bar.isEmpty();
+            for (io.github.saefalasalynbtel198.shcport.core.InputAction ia : bar) x.send(ia);   // nothing, if correct
+            x.flush();
             System.out.println("[" + tag + "] check touch in the black bar at " + Math.round(bx) + "," + Math.round(by) + " sends no input: "
                     + (barQuiet ? "PASS" : "FAIL (in bar " + inBar + ", actions " + bar + ")"));
         }
