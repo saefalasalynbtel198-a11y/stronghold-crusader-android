@@ -1,5 +1,22 @@
 # Release notes
 
+## 0.6.0 — Display Resolution setting (test build; sound, touch and launch path unchanged at the default)
+
+* Settings → Display Resolution: 640 × 480, 800 × 600, 1024 × 768 (default), 1280 × 960, Device resolution, Auto.
+  Applied at the next Start Game; "Restore default display" returns to 1024 × 768. Existing installs keep 1024 × 768.
+* The setting chooses the X screen (Xvfb) the game draws into; for sizes other than 1024 × 768 that size is offered to
+  the game as a DirectDraw mode. The game's own resolution is still chosen in the game's options (the app cannot
+  change it); cnc-ddraw scales it onto the X screen with the shape kept.
+* Picture: aspect kept, centred, black bars; touches mapped with the same geometry at every size. New: a touch that
+  starts in a black bar does nothing.
+* Safe start: size validated, framebuffer size checked, DirectDraw pre-check per size; on any failure the app falls
+  back to 1024 × 768 and says so (message + Report). Report has a Display Resolution line.
+* At 1024 × 768 the Xvfb command line and ddraw.ini are byte-identical to 0.5.1. Runtime r6, Wine/Box64 settings,
+  sound (plugin and bridge), click timing and gestures unchanged.
+* Tests: 12 new unit tests (150 in all); CI step 4d runs three other screen sizes under qemu with Wine + cnc-ddraw
+  (pre-check, picture, game mode, taps at the right game pixel, bar touches ignored). docs/DISPLAY_RESOLUTION.md.
+* Not verified on a phone yet. 0.5.1 must be uninstalled first (debug key of each build differs).
+
 ## 0.5.1 — smoother game sound (fix of a slight stutter in 0.5.0)
 
 * Device result of 0.5.0 (owner): music and effects play with no lag; touch controls unchanged; a very slight

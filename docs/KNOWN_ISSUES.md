@@ -1,5 +1,11 @@
 # Known issues and limitations
 
+## Display Resolution (0.6.0, not yet verified on the phone)
+
+* The game's own resolution (saved in its options) is not changed by the app; set the same size in the game's options.
+* Device resolution: not 4:3; heaviest option; whether the game accepts such a size is unverified.
+* The diagnostic tests always run at 1024 × 768. Details: docs/DISPLAY_RESOLUTION.md.
+
 ## Blocking gameplay
 
 1. **The game cannot be started yet.** The runtime can be installed and self-tested (BUILD 2), but there is no

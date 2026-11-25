@@ -201,6 +201,9 @@ Last updated: 2026-11-20 (BUILD 2 device report 2: glibc patched for Android sec
    functional and unaffected. **0.5.1 is the current known-good version** (docs/BASELINE_0.5.1.md, commit 6e1ef56).
    Owner's instruction: no further audio changes for now; keep runtime r6, display, launch path and touch controls;
    wait for the owner's next instructions (pending: experienced-player control evaluation; display resolution).
+   0.6.0: Settings → Display Resolution (X screen size, injected DirectDraw mode, aspect-kept picture, touch mapping
+   per size, bar touches ignored, fallback to 1024×768); default byte-identical to 0.5.1; CI-tested only
+   (docs/DISPLAY_RESOLUTION.md has the device checklist). 0.5.1 (commit 6e1ef56) stays the recovery point.
 1. Owner: install app 0.3.5-dev.1 (keep runtime r6), Runtime → Display test → Start, check the screen, pause/resume,
    let it run a few minutes, Stop, Copy report; send the report and a phone screenshot.
 2. Agent: analyse the device report; step 3.3 (touch input) only after step 3.2 passes on the device.
