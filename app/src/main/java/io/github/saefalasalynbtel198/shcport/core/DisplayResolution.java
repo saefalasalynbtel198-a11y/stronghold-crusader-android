@@ -120,8 +120,8 @@ public final class DisplayResolution {
             case R800X600: return "Classic size, a little faster than 1024 × 768.";
             case R1024X768: return "The tested default.";
             case R1280X960: return "Sharper, needs more CPU: the game must also be set to 1280 × 960 in its options.";
-            case DEVICE: return "Your phone's own pixel size, no black bars if the game uses it too (set it in the game's "
-                    + "options). The heaviest choice: the game draws several times more pixels.";
+            case DEVICE: return "The game area's own pixel size (screen beside the side buttons). Sharp only if the game "
+                    + "is set to it in its options; with Stretch it fills the screen either way. The heaviest choice.";
             case AUTO: return "1024 × 768; 800 × 600 on phones with less than 4 GB of RAM.";
             default: return "";
         }
