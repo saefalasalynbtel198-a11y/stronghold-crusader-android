@@ -1,6 +1,7 @@
 # Display Resolution (0.6.0)
 
-Status: implemented and CI-tested. **Not verified on the phone yet.** Recovery point: 0.5.1 (commit `6e1ef56`,
+Status: implemented and CI-tested (run 45625395365: all jobs green; APK SHA-256
+`39eb048c0a0c8b3f7a594cb4b0baecaed2c1993e6a15ad7de68a59f2646aa287`). **Not verified on the phone yet.** Recovery point: 0.5.1 (commit `6e1ef56`,
 docs/BASELINE_0.5.1.md).
 
 ## The four sizes
@@ -76,7 +77,8 @@ Report line: `Display Resolution: setting …; X screen …; [FALLBACK: …;] de
 * Whether Stronghold Crusader HD 1.41 accepts a non-standard size such as 2616×1280 in its options is not verified.
 * cnc-ddraw offers the game only modes that fit the X screen. At 640 × 480 or 800 × 600 the game's options will not
   list 1024 × 768; a 1024 × 768 already saved in the game is still set and scaled down (CI: SetDisplayMode OK,
-  clicks at the right pixel), but whether the game itself keeps it or switches to a listed mode is not verified.
+  clicks at the right pixel; offered at 640×480: 640x480 and smaller only). At a 1600×720 screen 1024×768 is not
+  offered either (taller than the screen); the Xiaomi's game view is 1280 px high, so Device keeps it., but whether the game itself keeps it or switches to a listed mode is not verified.
 * Larger sizes use more memory: the X framebuffer is width × height × 4 bytes (1024×768 = 3 MB, 2616×1280 = 13 MB),
   plus the same again for the app's upload buffer.
 

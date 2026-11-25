@@ -204,6 +204,9 @@ Last updated: 2026-11-20 (BUILD 2 device report 2: glibc patched for Android sec
    0.6.0: Settings → Display Resolution (X screen size, injected DirectDraw mode, aspect-kept picture, touch mapping
    per size, bar touches ignored, fallback to 1024×768); default byte-identical to 0.5.1; CI-tested only
    (docs/DISPLAY_RESOLUTION.md has the device checklist). 0.5.1 (commit 6e1ef56) stays the recovery point.
+   0.6.0 CI: run 45625395365 green (150 unit tests, lint, APK verify, emulator smoke, qemu incl. step 4d at
+   1280x960 / 1600x720 / 640x480: all PASS). APK SHA-256 39eb048c…a287 (Android Debug signer); ALSA plugin unchanged
+   (83f46e1f…dd47). Awaiting the owner's device test.
 1. Owner: install app 0.3.5-dev.1 (keep runtime r6), Runtime → Display test → Start, check the screen, pause/resume,
    let it run a few minutes, Stop, Copy report; send the report and a phone screenshot.
 2. Agent: analyse the device report; step 3.3 (touch input) only after step 3.2 passes on the device.
