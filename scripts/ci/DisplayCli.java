@@ -53,7 +53,7 @@ public final class DisplayCli {
             case "game-launch":    // game-launch <runtime> <prefix> <gamedir> <exe> <tmp> <display> <fbfile> <logdir>
                 System.exit(gameLaunch(a));
                 break;
-            case "resolution":     // resolution <runtime> <prefix> <tmp> <work> <bridge.py> <ddraw-input-test.exe> <display> <screen WxH> <game WxH> <precheck|no-precheck>
+            case "resolution":     // resolution <runtime> <prefix> <tmp> <work> <bridge.py> <ddraw-input-test.exe> <display> <screen WxH> <game WxH> <precheck|no-precheck> [preserve|stretch|fill]
                 System.exit(resolution(a));
                 break;
             case "cycle":          // cycle <runtime> <fbbase> <logdir> <rounds> [-- prefix...]
@@ -680,7 +680,10 @@ public final class DisplayCli {
         int d = Integer.parseInt(a[7]);
         int[] sc = wh(a[8]), g = wh(a[9]);
         boolean pre = a[10].equals("precheck");
-        String tag = a[8] + "-game-" + a[9];
+        // 0.6.1 Display Scaling Mode (Android transform; cnc-ddraw stretches too only for Stretch on a non-4:3 screen)
+        io.github.saefalasalynbtel198.shcport.core.ScalingMode mode = a.length > 11 ? io.github.saefalasalynbtel198.shcport.core.ScalingMode.fromKey(a[11]) : io.github.saefalasalynbtel198.shcport.core.ScalingMode.PRESERVE;
+        boolean ddStretch = io.github.saefalasalynbtel198.shcport.core.CncDdrawConfig.stretchesGame(mode, sc[0], sc[1]);
+        String tag = a[8] + "-game-" + a[9] + (mode == io.github.saefalasalynbtel198.shcport.core.ScalingMode.PRESERVE ? "" : "-" + mode.key);
         File dir = new File(work, tag);
         dir.mkdirs();
         int bad = 0;
@@ -717,11 +720,13 @@ public final class DisplayCli {
         java.nio.file.Files.copy(testExe.toPath(), new File(game, exe).toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
         io.github.saefalasalynbtel198.shcport.core.WineLaunchPlan plan = io.github.saefalasalynbtel198.shcport.core.WineLaunchPlan
                 .build(rt, prefix, game, exe, tmp, d, Arrays.asList(String.valueOf(g[0]), String.valueOf(g[1]), "1500"));
-        io.github.saefalasalynbtel198.shcport.core.CncDdrawConfig cfg = new io.github.saefalasalynbtel198.shcport.core.CncDdrawConfig().forScreen(sc[0], sc[1]);
+        io.github.saefalasalynbtel198.shcport.core.CncDdrawConfig cfg = new io.github.saefalasalynbtel198.shcport.core.CncDdrawConfig().forScreen(sc[0], sc[1]).forScaling(mode, sc[0], sc[1]);
         io.github.saefalasalynbtel198.shcport.core.GameSetup.Result sr = io.github.saefalasalynbtel198.shcport.core.GameSetup.prepare(plan, cfg);
         boolean def = sc[0] == X11DisplayPlan.WIDTH && sc[1] == X11DisplayPlan.HEIGHT;
         boolean iniOk = sr.ok && (def ? !cfg.toIni().contains("inject_resolution")
-                : cfg.toIni().split("inject_resolution=" + a[8] + "\r\n", -1).length == 3);
+                : cfg.toIni().split("inject_resolution=" + a[8] + "\r\n", -1).length == 3)
+                && cfg.toIni().contains(ddStretch ? "maintas=false\r\n" : "maintas=true\r\n");
+        System.out.println("[" + tag + "] scaling " + mode.label + ": cnc-ddraw " + (ddStretch ? "stretches the game picture (maintas=false)" : "keeps its shape (maintas=true)"));
         System.out.println("[" + tag + "] check setup, ini " + (def ? "unchanged from 0.5.1" : "injects " + a[8] + " in both game sections") + ": " + (iniOk ? "PASS" : "FAIL"));
         if (!iniOk) { System.out.print(sr.report); bad++; }
 
@@ -775,22 +780,25 @@ public final class DisplayCli {
         // 5. taps on a phone view through the app's mapper and X11 client
         Process br = new ProcessBuilder("python3", "-I", bridge, String.valueOf(d)).redirectError(ProcessBuilder.Redirect.INHERIT).start();
         io.github.saefalasalynbtel198.shcport.core.ViewportTransform vt =
-                new io.github.saefalasalynbtel198.shcport.core.ViewportTransform(sc[0], sc[1], 2400, 1080);
+                new io.github.saefalasalynbtel198.shcport.core.ViewportTransform(sc[0], sc[1], 2400, 1080, mode);
         io.github.saefalasalynbtel198.shcport.core.TouchMouseMapper mapper = new io.github.saefalasalynbtel198.shcport.core.TouchMouseMapper(
                 new io.github.saefalasalynbtel198.shcport.core.ControlSettings(), vt);
         // where cnc-ddraw puts the game picture on the X screen (maintas: aspect kept, centred)
+        // (maintas=false: stretched per axis over the whole screen)
         float s = Math.min((float) sc[0] / g[0], (float) sc[1] / g[1]);
-        float ox = (sc[0] - g[0] * s) / 2f, oy = (sc[1] - g[1] * s) / 2f;
+        float gsx = ddStretch ? (float) sc[0] / g[0] : s, gsy = ddStretch ? (float) sc[1] / g[1] : s;
+        float ox = (sc[0] - g[0] * gsx) / 2f, oy = (sc[1] - g[1] * gsy) / 2f;
         int[][] targets = {{g[0] / 3, g[1] / 3}, {g[0] / 10, g[1] / 10}, {g[0] / 2, g[1] / 2}, {g[0] * 9 / 10, g[1] * 85 / 100}};
         long tt = System.currentTimeMillis();
         boolean barQuiet;
         try (io.github.saefalasalynbtel198.shcport.core.X11Input x = io.github.saefalasalynbtel198.shcport.core.X11Input
                 .connect(br.getInputStream(), br.getOutputStream())) {
             System.out.println("[" + tag + "] x11 input: screen " + x.screenWidth + "x" + x.screenHeight + "; phone view 2400x1080, picture "
-                    + Math.round(sc[0] * vt.scale) + "x" + Math.round(sc[1] * vt.scale) + " at " + Math.round(vt.offsetX) + "," + Math.round(vt.offsetY));
+                    + Math.round(vt.drawnWidth()) + "x" + Math.round(vt.drawnHeight()) + " at " + Math.round(vt.offsetX) + "," + Math.round(vt.offsetY)
+                    + " (" + mode.label + ")");
             for (int[] t : targets) {
-                int xi = (int) Math.floor(ox + (t[0] + 0.5f) * s), yi = (int) Math.floor(oy + (t[1] + 0.5f) * s);
-                float vx = vt.offsetX + (xi + 0.5f) * vt.scale, vy = vt.offsetY + (yi + 0.5f) * vt.scale;
+                int xi = (int) Math.floor(ox + (t[0] + 0.5f) * gsx), yi = (int) Math.floor(oy + (t[1] + 0.5f) * gsy);
+                float vx = vt.viewX(xi), vy = vt.viewY(yi);
                 List<io.github.saefalasalynbtel198.shcport.core.InputAction> acts = new ArrayList<>(mapper.onTouch(
                         io.github.saefalasalynbtel198.shcport.core.TouchMouseMapper.Frame.single(io.github.saefalasalynbtel198.shcport.core.TouchMouseMapper.Action.DOWN, vx, vy, System.currentTimeMillis() - tt)));
                 Thread.sleep(80);
@@ -805,7 +813,17 @@ public final class DisplayCli {
             // tried on a second view shape (1786x1228, as the CI input test) with the same X screen
             io.github.saefalasalynbtel198.shcport.core.ViewportTransform bvt = vt;
             io.github.saefalasalynbtel198.shcport.core.TouchMouseMapper bm = mapper;
-            if (vt.offsetX < 8 && vt.offsetY < 8) {
+            if (mode == io.github.saefalasalynbtel198.shcport.core.ScalingMode.STRETCH) {
+                // no bars at all: the corners of the phone view are the corners of the X screen
+                boolean c0 = vt.contains(0, 0) && vt.toGameX(0) == 0 && vt.toGameY(0) == 0;
+                boolean c1 = vt.contains(2399.9f, 1079.9f) && vt.toGameX(2399.9f) == sc[0] - 1 && vt.toGameY(1079.9f) == sc[1] - 1;
+                System.out.println("[" + tag + "] check Stretch: no bars, view corners are X screen corners 0,0 and "
+                        + (sc[0] - 1) + "," + (sc[1] - 1) + ": " + (c0 && c1 ? "PASS" : "FAIL"));
+                if (!(c0 && c1)) bad++;
+                bvt = new io.github.saefalasalynbtel198.shcport.core.ViewportTransform(sc[0], sc[1], 1786, 1228, io.github.saefalasalynbtel198.shcport.core.ScalingMode.PRESERVE);
+                bm = new io.github.saefalasalynbtel198.shcport.core.TouchMouseMapper(new io.github.saefalasalynbtel198.shcport.core.ControlSettings(), bvt);
+                System.out.println("[" + tag + "] info: bar touch tried with Preserve on 1786x1228");
+            } else if (vt.offsetX < 8 && vt.offsetY < 8) {
                 System.out.println("[" + tag + "] info: no black bars on the 2400x1080 view (same shape as the X screen); bar touch tried on 1786x1228");
                 bvt = new io.github.saefalasalynbtel198.shcport.core.ViewportTransform(sc[0], sc[1], 1786, 1228);
                 bm = new io.github.saefalasalynbtel198.shcport.core.TouchMouseMapper(new io.github.saefalasalynbtel198.shcport.core.ControlSettings(), bvt);
@@ -838,13 +856,13 @@ public final class DisplayCli {
             }
         }
         // one game pixel covers 1/s X pixels: the tolerance grows when the picture is smaller than the game
-        int tol = 2 + (int) Math.ceil(1 / s);
+        int tolX = 2 + (int) Math.ceil(1 / gsx), tolY = 2 + (int) Math.ceil(1 / gsy);
         int found = 0;
         for (int i = 1; i < targets.length; i++) {        // targets[0] only wakes the window (cnc-ddraw may take that click to lock the mouse)
             int[] t = targets[i];
             boolean hit = false;
-            for (int[] dn : downs) if (Math.abs(dn[0] - t[0]) <= tol && Math.abs(dn[1] - t[1]) <= tol) hit = true;
-            System.out.println("[" + tag + "] click at game " + t[0] + "," + t[1] + " (±" + tol + "): " + (hit ? "received" : "NOT received"));
+            for (int[] dn : downs) if (Math.abs(dn[0] - t[0]) <= tolX && Math.abs(dn[1] - t[1]) <= tolY) hit = true;
+            System.out.println("[" + tag + "] click at game " + t[0] + "," + t[1] + " (±" + tolX + "," + tolY + "): " + (hit ? "received" : "NOT received"));
             if (hit) found++;
         }
         boolean clicksOk = found == targets.length - 1 && downs.size() <= targets.length;

@@ -225,16 +225,20 @@ echo "== 4d. 0.6.0 Display Resolution: other X screen sizes, cnc-ddraw scaling, 
 if [ -n "$RES_EXE" ]; then
   # screen | game mode | pre-check: the chosen size with the game still at 1024x768 (scaled up), a phone-shaped
   # screen with the game at that size (Device: injected mode), and the smallest size (game scaled down)
-  for cfg in "1280x960 1024x768 precheck" "1600x720 1600x720 precheck" "640x480 1024x768 no-precheck"; do
-    read -r rs rg rp <<< "$cfg"
+  # 0.6.1 Display Scaling Mode Stretch: the default screen stretched by the app over the phone view, and a wide
+  # (Device-like) screen where cnc-ddraw stretches the game's 4:3 picture as well
+  for cfg in "1280x960 1024x768 precheck" "1600x720 1600x720 precheck" "640x480 1024x768 no-precheck" \
+             "1024x768 1024x768 no-precheck stretch" "1600x720 1024x768 precheck stretch"; do
+    read -r rs rg rp rmode <<< "$cfg"
+    rmode=${rmode:-preserve}
     timeout 3600 java -cp "$W/classes" DisplayCli resolution "$rt" "$prefix" "$files/tmp" "$W/resolution" \
-      "$repo/scripts/ci/x11-abstract-bridge.py" "$RES_EXE" 45 "$rs" "$rg" "$rp" 2> >(grep -v "^Picked up" >&2) | tee "$W/res-$rs-$rg.txt"
+      "$repo/scripts/ci/x11-abstract-bridge.py" "$RES_EXE" 45 "$rs" "$rg" "$rp" "$rmode" 2> >(grep -v "^Picked up" >&2) | tee "$W/res-$rs-$rg-$rmode.txt"
     rrc=${PIPESTATUS[0]}
     timeout 120 "$box64" "$wineserver" -k > /dev/null 2>&1
     pkill -u "$(id -u)" -f "x11/Xvfb :45 "; sleep 3
-    if [ $rrc -eq 0 ] && ! grep -q ": FAIL" "$W/res-$rs-$rg.txt"; then
-      result "resolution-$rs-game-$rg" "PASS (Xvfb ${rs}x24 with the app's argv, framebuffer $rs; ini injects the size; $([ "$rp" = precheck ] && echo "app's DirectDraw pre-check PASS at this size; ")game mode $rg offered and set, picture in shape; taps on a 2400x1080 view at the tapped game pixel; bar touch sends nothing)"
-    else result "resolution-$rs-game-$rg" "FAIL (exit $rrc)"; fi
+    if [ $rrc -eq 0 ] && ! grep -q ": FAIL" "$W/res-$rs-$rg-$rmode.txt"; then
+      result "resolution-$rs-game-$rg-$rmode" "PASS (scaling $rmode; Xvfb ${rs}x24 with the app's argv, framebuffer $rs; ini injects the size; $([ "$rp" = precheck ] && echo "app's DirectDraw pre-check PASS at this size; ")game mode $rg offered and set, picture in shape; taps on a 2400x1080 view at the tapped game pixel; no bars in Stretch, bar touch sends nothing otherwise)"
+    else result "resolution-$rs-game-$rg-$rmode" "FAIL (exit $rrc)"; fi
   done
 else
   echo "(skipped: no DirectDraw input test program given)"
