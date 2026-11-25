@@ -13,6 +13,7 @@ import java.util.Locale;
 
 import io.github.saefalasalynbtel198.shcport.core.ControlSettings;
 import io.github.saefalasalynbtel198.shcport.core.DisplayResolution;
+import io.github.saefalasalynbtel198.shcport.core.ScalingMode;
 
 /** Adjusts touch-control sensitivity. Changes are saved immediately. */
 public final class SettingsActivity extends Activity {
@@ -78,10 +79,10 @@ public final class SettingsActivity extends Activity {
         long ram = DisplaySettingsStore.totalMemory(this);
 
         col.addView(Ui.heading(this, "Display Resolution"));
-        col.addView(Ui.muted(this, "The size of the screen the game draws into. The picture always keeps its "
-                + "4:3 shape (or the phone's shape for Device) with black bars where needed, and touches are "
-                + "mapped to it exactly. Changes apply at the next Start Game. Also choose the same resolution in "
-                + "the game's own options, otherwise the game keeps the resolution saved there."));
+        col.addView(Ui.muted(this, "The size of the screen the game draws into. How it is fitted to the phone is "
+                + "the Display Scaling Mode below; touches are mapped to the picture exactly. Changes apply at the "
+                + "next Start Game. Also choose the same resolution in the game's own options, otherwise the game "
+                + "keeps the resolution saved there."));
         col.addView(Ui.muted(this, String.format(Locale.ROOT, "This phone: display %d × %d pixels, %.1f GB RAM. "
                 + "Device uses the game area beside the side buttons (exact size at Start Game).", pw, ph, ram / 1e9)));
 
@@ -112,10 +113,37 @@ public final class SettingsActivity extends Activity {
         col.addView(group);
         col.addView(now);
         show.run();
-        col.addView(Ui.button(this, "Restore default display (1024 × 768)", v -> {
+        buildScaling(col, store);
+        col.addView(Ui.button(this, "Restore default display (1024 × 768, Stretch to full screen)", v -> {
             store.restoreDefault();
             build();
         }));
+    }
+
+    /** Display Scaling Mode: how the game picture fits the game area (left of the side buttons). */
+    private void buildScaling(LinearLayout col, DisplaySettingsStore store) {
+        col.addView(Ui.heading(this, "Display Scaling Mode"));
+        col.addView(Ui.muted(this, "How the game picture fits the area beside the side buttons. Touches always land "
+                + "on the game point shown under the finger; touches outside the picture are ignored. Applies at "
+                + "the next Start Game."));
+        ScalingMode current = store.loadScaling();
+        android.widget.RadioGroup group = new android.widget.RadioGroup(this);
+        for (ScalingMode m : ScalingMode.values()) {
+            android.widget.RadioButton rb = new android.widget.RadioButton(this);
+            rb.setId(View.generateViewId());
+            rb.setText(m.label + (m == ScalingMode.DEFAULT ? " (default)" : "") + " — " + m.description);
+            rb.setTextColor(Ui.TEXT);
+            rb.setTag(m);
+            group.addView(rb);
+            if (m == current) rb.setChecked(true);
+        }
+        group.setOnCheckedChangeListener((g, id) -> {
+            View v = g.findViewById(id);
+            if (v != null) store.saveScaling((ScalingMode) v.getTag());
+        });
+        col.addView(group);
+        col.addView(Ui.muted(this, "Stretch with Device resolution: the game's own picture (usually 4:3) is stretched "
+                + "across the whole screen as well, so no black bars remain."));
     }
 
     /** Game sound: on/off (next Start Game), volume and mute (immediately, also while the game runs). */

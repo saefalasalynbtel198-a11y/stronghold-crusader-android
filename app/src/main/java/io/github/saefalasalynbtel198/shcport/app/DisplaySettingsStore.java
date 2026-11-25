@@ -5,6 +5,7 @@ import android.content.Context;
 import android.content.SharedPreferences;
 
 import io.github.saefalasalynbtel198.shcport.core.DisplayResolution;
+import io.github.saefalasalynbtel198.shcport.core.ScalingMode;
 
 /**
  * Persists the Display Resolution setting (SharedPreferences "display", key "mode"). Nothing stored means the
@@ -26,7 +27,16 @@ final class DisplaySettingsStore {
     }
 
     void restoreDefault() {
-        prefs.edit().remove("mode").apply();
+        prefs.edit().remove("mode").remove("scaling").apply();
+    }
+
+    /** Display Scaling Mode (key "scaling"); nothing stored = {@link ScalingMode#DEFAULT} (Stretch). */
+    ScalingMode loadScaling() {
+        return ScalingMode.fromKey(prefs.getString("scaling", ScalingMode.DEFAULT.key));
+    }
+
+    void saveScaling(ScalingMode mode) {
+        prefs.edit().putString("scaling", mode.key).apply();
     }
 
     /** Total RAM of the device in bytes (0 if unknown), used by the Auto setting. */

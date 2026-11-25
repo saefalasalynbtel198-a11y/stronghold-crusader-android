@@ -18,6 +18,7 @@ import javax.microedition.khronos.opengles.GL10;
 import io.github.saefalasalynbtel198.shcport.core.DisplayTestPattern;
 import io.github.saefalasalynbtel198.shcport.core.FrameProbe;
 import io.github.saefalasalynbtel198.shcport.core.FrameStats;
+import io.github.saefalasalynbtel198.shcport.core.ScalingMode;
 import io.github.saefalasalynbtel198.shcport.core.ViewportTransform;
 import io.github.saefalasalynbtel198.shcport.core.XwdFramebuffer;
 
@@ -106,6 +107,8 @@ final class FramebufferRenderer implements GLSurfaceView.Renderer {
 
     /** Not the display test pattern (the game): detect changes over the whole frame, no pattern check. */
     volatile boolean wholeFrame;
+    /** How the frame fits the view (Display Scaling Mode; the display tests keep PRESERVE). */
+    volatile ScalingMode scaling = ScalingMode.PRESERVE;
 
     @Override
     public void onSurfaceChanged(GL10 unused, int width, int height) {
@@ -161,9 +164,10 @@ final class FramebufferRenderer implements GLSurfaceView.Renderer {
             lastCounterSeen = counter;
             stats.lastCounter = counter;
         }
-        ViewportTransform vt = new ViewportTransform(fb.width, fb.height, viewW, viewH);
-        GLES20.glViewport(Math.round(vt.offsetX), Math.round(vt.offsetY), Math.round(fb.width * vt.scale),
-                Math.round(fb.height * vt.scale));
+        // the same transform the touch mapper uses (STRETCH: whole view, FILL: larger than the view, cropped)
+        ViewportTransform vt = new ViewportTransform(fb.width, fb.height, viewW, viewH, scaling);
+        GLES20.glViewport(Math.round(vt.offsetX), Math.round(vt.offsetY), Math.round(vt.drawnWidth()),
+                Math.round(vt.drawnHeight()));
         GLES20.glUseProgram(program);
         quad.position(0);
         GLES20.glVertexAttribPointer(aPos, 2, GLES20.GL_FLOAT, false, 16, quad);

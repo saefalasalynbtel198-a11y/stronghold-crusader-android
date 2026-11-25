@@ -37,6 +37,7 @@ import io.github.saefalasalynbtel198.shcport.core.InputAction;
 import io.github.saefalasalynbtel198.shcport.core.SessionLifecycle;
 import io.github.saefalasalynbtel198.shcport.core.TouchMouseMapper;
 import io.github.saefalasalynbtel198.shcport.core.DisplayResolution;
+import io.github.saefalasalynbtel198.shcport.core.ScalingMode;
 import io.github.saefalasalynbtel198.shcport.core.ViewportTransform;
 import io.github.saefalasalynbtel198.shcport.core.X11DisplayPlan;
 import io.github.saefalasalynbtel198.shcport.core.X11Input;
@@ -100,12 +101,18 @@ public final class GameActivity extends Activity implements Choreographer.FrameC
         overlayBox.addView(overlay);
         overlayBox.addView(Ui.row(this, again, back));
 
-        FrameLayout root = new FrameLayout(this);
+        // the game area is the screen left of the button column: the picture (stretched or not) never lies under
+        // the buttons, and touches on the buttons never reach the game
+        FrameLayout game = new FrameLayout(this);
+        game.addView(view, new FrameLayout.LayoutParams(-1, -1));
+        game.addView(surface, new FrameLayout.LayoutParams(-1, -1));
+        game.addView(overlayBox, new FrameLayout.LayoutParams(-2, -2, Gravity.CENTER));
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.HORIZONTAL);
         root.setBackgroundColor(Color.BLACK);
-        root.addView(view, new FrameLayout.LayoutParams(-1, -1));
-        root.addView(surface, new FrameLayout.LayoutParams(-1, -1));
-        root.addView(overlayBox, new FrameLayout.LayoutParams(-2, -2, Gravity.CENTER));
-        root.addView(bar, new FrameLayout.LayoutParams(-2, -2, Gravity.END | Gravity.CENTER_VERTICAL));
+        root.addView(game, new LinearLayout.LayoutParams(0, -1, 1f));
+        root.addView(bar, new LinearLayout.LayoutParams(-2, -1));
+        bar.setGravity(Gravity.CENTER_VERTICAL);
         setContentView(root);
 
         wantStart = !app.playLife.active();      // otherwise: show the running session
@@ -151,7 +158,8 @@ public final class GameActivity extends Activity implements Choreographer.FrameC
 
     private void start() {
         // Display Resolution (Settings): "Device" needs the size of the game view, known after the first layout
-        DisplayResolution.Mode mode = new DisplaySettingsStore(this).load();
+        DisplaySettingsStore display = new DisplaySettingsStore(this);
+        DisplayResolution.Mode mode = display.load();
         if (mode == DisplayResolution.Mode.DEVICE && (surface.getWidth() == 0 || surface.getHeight() == 0)) return;
         SessionLifecycle life = app.playLife;
         if (!life.tryStart()) return;            // a session exists: this screen shows it
@@ -160,7 +168,8 @@ public final class GameActivity extends Activity implements Choreographer.FrameC
         DisplayTestSession s = new DisplayTestSession(this, app.paths(), true, true, (st, msg) -> { });
         s.requestedScreen = DisplayResolution.resolve(mode, surface.getWidth(), surface.getHeight(),
                 DisplaySettingsStore.totalMemory(this));
-        surface.setGameSize(X11DisplayPlan.WIDTH, X11DisplayPlan.HEIGHT);
+        s.scaling = display.loadScaling();       // Display Scaling Mode: fixed for this session
+        surface.setGameSize(X11DisplayPlan.WIDTH, X11DisplayPlan.HEIGHT, ScalingMode.PRESERVE);
         startSound(s);
         app.playSession = s;
         attachedSource = false;
@@ -311,8 +320,11 @@ public final class GameActivity extends Activity implements Choreographer.FrameC
                 s.poll(renderer.stats);
                 if (!attachedSource && s.framebuffer() != null) {
                     // touches map onto the X screen the game really uses (after any fallback to 1024x768)
-                    surface.setGameSize(s.screenW, s.screenH);
+                    // the renderer and the touch mapper use the same transform (size and scaling mode)
+                    renderer.scaling = s.scaling;
+                    surface.setGameSize(s.screenW, s.screenH, s.scaling);
                     renderer.setSource(s.framebuffer());
+                    view.requestRender();
                     attachedSource = true;
                     if (!s.displayNote.isEmpty()) {
                         Toast.makeText(GameActivity.this, "Display Resolution: " + s.displayNote, Toast.LENGTH_LONG).show();
@@ -488,6 +500,7 @@ public final class GameActivity extends Activity implements Choreographer.FrameC
         private ViewportTransform viewport;
         /** Size of the X screen shown (Display Resolution); the renderer takes it from the framebuffer itself. */
         private int gameW = X11DisplayPlan.WIDTH, gameH = X11DisplayPlan.HEIGHT;
+        private ScalingMode scaling = ScalingMode.PRESERVE;
 
         PlaySurface(Context c) {
             super(c);
@@ -508,18 +521,19 @@ public final class GameActivity extends Activity implements Choreographer.FrameC
             if (mapper != null) mapper.setSettings(new ControlSettingsStore(getContext()).load());
         }
 
-        void setGameSize(int w, int h) {
-            if (w <= 0 || h <= 0 || (w == gameW && h == gameH)) return;
+        void setGameSize(int w, int h, ScalingMode mode) {
+            if (w <= 0 || h <= 0 || (w == gameW && h == gameH && mode == scaling)) return;
             releaseAll();                        // no button stays down across the change
             gameW = w;
             gameH = h;
+            scaling = mode;
             if (getWidth() > 0 && getHeight() > 0) onSizeChanged(getWidth(), getHeight(), getWidth(), getHeight());
         }
 
         @Override
         protected void onSizeChanged(int w, int h, int oldw, int oldh) {
             // the same letterbox geometry as the renderer, so a touch lands on the pixel shown under the finger
-            viewport = new ViewportTransform(gameW, gameH, w, h);
+            viewport = new ViewportTransform(gameW, gameH, w, h, scaling);
             if (mapper == null) {
                 mapper = new TouchMouseMapper(new ControlSettingsStore(getContext()).load(), viewport);
                 mapper.setRightButtonMode(rightMode);

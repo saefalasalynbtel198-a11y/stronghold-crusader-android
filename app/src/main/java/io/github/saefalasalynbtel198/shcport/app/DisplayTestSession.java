@@ -26,6 +26,7 @@ import io.github.saefalasalynbtel198.shcport.BuildConfig;
 import io.github.saefalasalynbtel198.shcport.core.CncDdrawConfig;
 import io.github.saefalasalynbtel198.shcport.core.DdrawPrecheck;
 import io.github.saefalasalynbtel198.shcport.core.DisplayResolution;
+import io.github.saefalasalynbtel198.shcport.core.ScalingMode;
 import io.github.saefalasalynbtel198.shcport.core.DisplayStartOrder;
 import io.github.saefalasalynbtel198.shcport.core.DisplayTestPattern;
 import io.github.saefalasalynbtel198.shcport.core.FrameProbe;
@@ -347,6 +348,9 @@ final class DisplayTestSession {
     /** The X screen actually running (after Xvfb started; 0 before) and what happened on the way (fallback). */
     volatile int screenW, screenH;
     volatile String displayNote = "";
+    /** Play mode: Display Scaling Mode for this session (Android transform; cnc-ddraw only for Stretch on a non-4:3 screen). */
+    volatile ScalingMode scaling = ScalingMode.PRESERVE;
+    private String iniKey = "";
     private Runnable onXvfbReadyLater;
 
     /**
@@ -389,7 +393,12 @@ final class DisplayTestSession {
                 java.util.Collections.<String>emptyList());
         set(State.STARTING_WINE, "Preparing the game in the Wine prefix (the game folder is not changed)");
         int sw = screenW > 0 ? screenW : X11DisplayPlan.WIDTH, sh = screenH > 0 ? screenH : X11DisplayPlan.HEIGHT;
-        GameSetup.Result sr = GameSetup.prepare(plan, new CncDdrawConfig().forScreen(sw, sh));
+        CncDdrawConfig cfg = new CncDdrawConfig().forScreen(sw, sh).forScaling(play ? scaling : ScalingMode.PRESERVE, sw, sh);
+        iniKey = Integer.toHexString(cfg.toIni().hashCode());
+        if (CncDdrawConfig.stretchesGame(play ? scaling : ScalingMode.PRESERVE, sw, sh)) {
+            log("Display Scaling Mode " + scaling.label + " on a " + sw + "x" + sh + " screen: cnc-ddraw stretches the game picture too (maintas=false)");
+        }
+        GameSetup.Result sr = GameSetup.prepare(plan, cfg);
         setupReport = sr.report;
         log("game setup:\n" + sr.report.trim());
         if (!sr.ok) { fail("game setup failed (see the log)"); return false; }
@@ -483,7 +492,7 @@ final class DisplayTestSession {
     private String precheckKey() {
         return readText(rt.versionFile()) + "|" + rt.cncDdraw().length() + "/" + rt.cncDdraw().lastModified() + "|"
                 + rt.guiSmoke().length() + "/" + rt.guiSmoke().lastModified() + "|" + BuildConfig.VERSION_CODE
-                + "|" + screenW + "x" + screenH;
+                + "|" + screenW + "x" + screenH + "|" + iniKey;
     }
 
     private static void writeText(File f, String text) {
@@ -748,12 +757,18 @@ final class DisplayTestSession {
         StringBuilder b = new StringBuilder();
         b.append(play ? "setting " + (want == null ? "1024x768 (default)" : want.reason) : "test size 1024x768");
         b.append("; X screen (game resolution limit) ").append(screenW > 0 ? screenW + "x" + screenH : "not running");
+        if (play) b.append("; scaling ").append(scaling.label).append(CncDdrawConfig.stretchesGame(scaling, screenW, screenH)
+                ? " (cnc-ddraw stretches the game picture too)" : "");
         if (!displayNote.isEmpty()) b.append("; FALLBACK: ").append(displayNote);
         if (screenW > 0 && viewW > 0 && viewH > 0) {
-            io.github.saefalasalynbtel198.shcport.core.ViewportTransform v =
-                    new io.github.saefalasalynbtel198.shcport.core.ViewportTransform(screenW, screenH, viewW, viewH);
-            b.append(String.format(Locale.ROOT, "; device view %dx%d, picture %.0fx%.0f at (%.0f,%.0f), scale %.3f",
-                    viewW, viewH, screenW * v.scale, screenH * v.scale, v.offsetX, v.offsetY, v.scale));
+            io.github.saefalasalynbtel198.shcport.core.ViewportTransform v = new io.github.saefalasalynbtel198.shcport.core.ViewportTransform(
+                    screenW, screenH, viewW, viewH, play ? scaling : ScalingMode.PRESERVE);
+            int[] r = v.visibleGameRect(viewW, viewH);
+            b.append(String.format(Locale.ROOT, "; game area %dx%d, picture %.0fx%.0f at (%.0f,%.0f), scale %.3f x %.3f",
+                    viewW, viewH, v.drawnWidth(), v.drawnHeight(), v.offsetX, v.offsetY, v.scaleX, v.scaleY));
+            if (r[0] > 0 || r[1] > 0 || r[2] < screenW || r[3] < screenH) {
+                b.append(String.format(Locale.ROOT, ", visible X pixels %d..%d x %d..%d (cropped)", r[0], r[2] - 1, r[1], r[3] - 1));
+            }
         }
         return b.toString();
     }
