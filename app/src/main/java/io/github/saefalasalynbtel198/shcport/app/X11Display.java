@@ -29,6 +29,8 @@ final class X11Display {
     int display = -1;
     List<String> argv;
     long readyMs = -1;
+    /** Screen size (Display Resolution setting in play mode; 1024×768 otherwise). Set before {@link #start}. */
+    int width = X11DisplayPlan.WIDTH, height = X11DisplayPlan.HEIGHT;
 
     X11Display(RuntimeLayout rt, File fbDir, File log) {
         this.rt = rt;
@@ -99,7 +101,7 @@ final class X11Display {
         @Override public boolean displayAnswers(int d) { return canConnect(d); }
 
         @Override public Process launch(int d) throws IOException {
-            argv = X11DisplayPlan.xvfbArgv(rt, d, fbDir);
+            argv = X11DisplayPlan.xvfbArgv(rt, d, fbDir, width, height);
             logOffset = log.length();
             ProcessBuilder pb = new ProcessBuilder(argv).directory(X11DisplayPlan.xvfbWorkingDir(rt))
                     .redirectOutput(ProcessBuilder.Redirect.PIPE)                // stdout: only the display number

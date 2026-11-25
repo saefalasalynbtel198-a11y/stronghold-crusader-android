@@ -90,24 +90,25 @@ jobs:
           gradle --no-daemon --stacktrace :app:assembleRelease
           cp app/build/outputs/apk/release/app-release.apk "stronghold-crusader-android-${TAG}.apk"
 
-      - name: Build debug APK (no signing secrets configured)
+      - name: Build debug APK (no release secrets configured; standard automatic debug signing)
         if: env.HAS_KEYSTORE != 'true'
         run: |
-          echo "::warning::Signing secrets not configured; publishing a debug-signed APK as a pre-release."
+          echo "::warning::Release signing secrets not configured; publishing the debug-signed APK as a pre-release."
           gradle --no-daemon --stacktrace :app:assembleDebug
-          cp app/build/outputs/apk/debug/app-debug.apk "stronghold-crusader-android-${TAG}-debug.apk"
+          cp app/build/outputs/apk/debug/app-debug.apk "SHC-Port-${TAG#v}.apk"
 
       - name: Verify APK
         run: |
-          apk=$(ls stronghold-crusader-android-*.apk)
+          apk=$(ls SHC-Port-*.apk stronghold-crusader-android-*.apk 2> /dev/null | head -n1)
           bash scripts/ci/verify-apk.sh "$apk" "${TAG#v}"
+          unzip -l "$apk" | grep "assets/shc-display-test.exe"
           sha256sum "$apk" > "$apk.sha256"
 
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          apk=$(ls stronghold-crusader-android-*.apk)
+          apk=$(ls SHC-Port-*.apk stronghold-crusader-android-*.apk 2> /dev/null | head -n1)
           flags=(--title "${TAG}" --notes-file docs/RELEASE_NOTES.md)
           case "$TAG" in *-dev*|*-alpha*|*-beta*|*-rc*) flags+=(--prerelease) ;; esac
           [ "$HAS_KEYSTORE" = "true" ] || flags+=(--prerelease)

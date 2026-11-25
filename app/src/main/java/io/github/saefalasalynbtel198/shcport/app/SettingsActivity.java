@@ -2,6 +2,7 @@ package io.github.saefalasalynbtel198.shcport.app;
 
 import android.app.Activity;
 import android.os.Bundle;
+import android.view.View;
 import android.widget.CompoundButton;
 import android.widget.LinearLayout;
 import android.widget.SeekBar;
@@ -11,6 +12,8 @@ import android.widget.TextView;
 import java.util.Locale;
 
 import io.github.saefalasalynbtel198.shcport.core.ControlSettings;
+import io.github.saefalasalynbtel198.shcport.core.DisplayResolution;
+import io.github.saefalasalynbtel198.shcport.core.ScalingMode;
 
 /** Adjusts touch-control sensitivity. Changes are saved immediately. */
 public final class SettingsActivity extends Activity {
@@ -30,12 +33,17 @@ public final class SettingsActivity extends Activity {
 
     private void build() {
         LinearLayout col = Ui.column(this);
-        col.addView(Ui.title(this, "Touch control settings"));
+        col.addView(Ui.title(this, "Settings"));
+        buildDisplay(col);
+        buildSound(col);
+        col.addView(Ui.heading(this, "Touch controls"));
         col.addView(Ui.muted(this, "Try changes on the touch-controls test screen. Defaults keep the original "
                 + "mouse mechanics: one-finger drag = left-button drag (box select, walls)."));
 
         addSlider(col, "Long press → right click (ms)", 200, 1500, settings.longPressMs,
                 v -> settings.longPressMs = v);
+        addSlider(col, "Click: button held for (ms)", 30, 500, settings.clickHoldMs,
+                v -> settings.clickHoldMs = v);
         addSlider(col, "Double-tap window (ms)", 100, 800, settings.doubleTapMs,
                 v -> settings.doubleTapMs = v);
         addSlider(col, "Tap tolerance (px)", 4, 120, Math.round(settings.touchSlopPx),
@@ -56,6 +64,118 @@ public final class SettingsActivity extends Activity {
             build();
         }));
         setContentView(Ui.scroll(this, col));
+    }
+
+    /**
+     * Display Resolution: the size of the X screen the game draws into. Saved immediately, applied at the next
+     * Start Game; the diagnostic tests always use 1024 × 768.
+     */
+    private void buildDisplay(LinearLayout col) {
+        DisplaySettingsStore store = new DisplaySettingsStore(this);
+        DisplayResolution.Mode current = store.load();
+        android.graphics.Point real = new android.graphics.Point();
+        getWindowManager().getDefaultDisplay().getRealSize(real);
+        int pw = Math.max(real.x, real.y), ph = Math.min(real.x, real.y);
+        long ram = DisplaySettingsStore.totalMemory(this);
+
+        col.addView(Ui.heading(this, "Display Resolution"));
+        col.addView(Ui.muted(this, "The size of the screen the game draws into. How it is fitted to the phone is "
+                + "the Display Scaling Mode below; touches are mapped to the picture exactly. Changes apply at the "
+                + "next Start Game. Also choose the same resolution in the game's own options, otherwise the game "
+                + "keeps the resolution saved there."));
+        col.addView(Ui.muted(this, String.format(Locale.ROOT, "This phone: display %d × %d pixels, %.1f GB RAM. "
+                + "Device uses the game area beside the side buttons (exact size at Start Game).", pw, ph, ram / 1e9)));
+
+        final TextView now = Ui.body(this, "");
+        android.widget.RadioGroup group = new android.widget.RadioGroup(this);
+        for (DisplayResolution.Mode m : DisplayResolution.Mode.values()) {
+            android.widget.RadioButton rb = new android.widget.RadioButton(this);
+            rb.setId(View.generateViewId());
+            rb.setText(m.label + " — " + DisplayResolution.describe(m));
+            rb.setTextColor(Ui.TEXT);
+            rb.setTag(m);
+            group.addView(rb);
+            if (m == current) rb.setChecked(true);
+        }
+        Runnable show = () -> {
+            DisplayResolution.Mode m = store.load();
+            DisplayResolution.Screen sc = DisplayResolution.resolve(m,
+                    m == DisplayResolution.Mode.DEVICE ? 0 : pw, ph, ram);
+            now.setText("Selected: " + m.label + (m == DisplayResolution.Mode.DEVICE
+                    ? " (about " + pw + " × " + ph + " minus the side buttons)" : " → X screen " + sc));
+        };
+        group.setOnCheckedChangeListener((g, id) -> {
+            View v = g.findViewById(id);
+            if (v == null) return;
+            store.save((DisplayResolution.Mode) v.getTag());
+            show.run();
+        });
+        col.addView(group);
+        col.addView(now);
+        show.run();
+        buildScaling(col, store);
+        col.addView(Ui.button(this, "Restore default display (1024 × 768, Stretch to full screen)", v -> {
+            store.restoreDefault();
+            build();
+        }));
+    }
+
+    /** Display Scaling Mode: how the game picture fits the game area (left of the side buttons). */
+    private void buildScaling(LinearLayout col, DisplaySettingsStore store) {
+        col.addView(Ui.heading(this, "Display Scaling Mode"));
+        col.addView(Ui.muted(this, "How the game picture fits the area beside the side buttons. Touches always land "
+                + "on the game point shown under the finger; touches outside the picture are ignored. Applies at "
+                + "the next Start Game."));
+        ScalingMode current = store.loadScaling();
+        android.widget.RadioGroup group = new android.widget.RadioGroup(this);
+        for (ScalingMode m : ScalingMode.values()) {
+            android.widget.RadioButton rb = new android.widget.RadioButton(this);
+            rb.setId(View.generateViewId());
+            rb.setText(m.label + (m == ScalingMode.DEFAULT ? " (default)" : "") + " — " + m.description);
+            rb.setTextColor(Ui.TEXT);
+            rb.setTag(m);
+            group.addView(rb);
+            if (m == current) rb.setChecked(true);
+        }
+        group.setOnCheckedChangeListener((g, id) -> {
+            View v = g.findViewById(id);
+            if (v != null) store.saveScaling((ScalingMode) v.getTag());
+        });
+        col.addView(group);
+        col.addView(Ui.muted(this, "Stretch with Device resolution: the game's own picture (usually 4:3) is stretched "
+                + "across the whole screen as well, so no black bars remain."));
+    }
+
+    /** Game sound: on/off (next Start Game), volume and mute (immediately, also while the game runs). */
+    private void buildSound(LinearLayout col) {
+        AudioSettingsStore store = new AudioSettingsStore(this);
+        io.github.saefalasalynbtel198.shcport.core.AudioSettings a = store.load();
+        ShcApplication app = (ShcApplication) getApplication();
+        Runnable save = () -> {
+            store.save(a);
+            app.audio = a.sanitized();
+        };
+        col.addView(Ui.heading(this, "Sound"));
+        col.addView(Ui.muted(this, "The game's own options set music and effects separately; these apply on top. "
+                + "Turning sound on or off takes effect at the next Start Game."));
+        addSwitch(col, "Game sound", a.enabled, (b, on) -> { a.enabled = on; save.run(); });
+        final TextView t = Ui.body(this, "");
+        col.addView(Ui.heading(this, "Volume (%)"));
+        col.addView(t);
+        SeekBar bar = new SeekBar(this);
+        bar.setMax(100);
+        bar.setProgress(a.volume);
+        t.setText(String.format(Locale.ROOT, "%d", a.volume));
+        bar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override public void onProgressChanged(SeekBar s, int progress, boolean fromUser) {
+                t.setText(String.format(Locale.ROOT, "%d", progress));
+                if (fromUser) { a.volume = progress; app.audio = a.sanitized(); }
+            }
+            @Override public void onStartTrackingTouch(SeekBar s) { }
+            @Override public void onStopTrackingTouch(SeekBar s) { save.run(); }
+        });
+        col.addView(bar);
+        addSwitch(col, "Mute", a.muted, (b, on) -> { a.muted = on; save.run(); });
     }
 
     private void addSlider(LinearLayout col, String label, final int min, int max, int value, final IntSetter setter) {

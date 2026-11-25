@@ -23,12 +23,21 @@ public final class ShcApplication extends Application {
 
     private AppPaths paths;
     private GameImporter importer;
+    /** The one game session (Start Game); it outlives the game screen being paused or recreated. */
+    final io.github.saefalasalynbtel198.shcport.core.SessionLifecycle playLife = new io.github.saefalasalynbtel198.shcport.core.SessionLifecycle();
+    volatile DisplayTestSession playSession;
+    volatile GameInput playInput;
+    /** Game sound of the running session (null without sound) and the player's sound settings (live). */
+    volatile AudioBridge playAudio;
+    volatile Object playAudioFocus;
+    volatile io.github.saefalasalynbtel198.shcport.core.AudioSettings audio;
 
     @Override
     public void onCreate() {
         super.onCreate();
         paths = new AppPaths(this);
         importer = new GameImporter(this, paths);
+        audio = new AudioSettingsStore(this).load();
         installCrashRecorder();
         Log.i(TAG, "Started " + BuildConfig.VERSION_NAME + " on " + Build.MANUFACTURER + " " + Build.MODEL
                 + " (SDK " + Build.VERSION.SDK_INT + ")");

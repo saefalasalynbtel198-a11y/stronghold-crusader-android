@@ -35,6 +35,8 @@ public final class AppPaths {
     public File runtimeDir() { return new File(internal, "runtime"); }
 
     public File prefixDir() { return new File(internal, "prefix/wine"); }
+    /** Private copy of the imported game in internal storage, where Wine can map its code executable (step 3.3). */
+    public File privateGameDir() { return new File(internal, "game-private"); }
 
     public File logsDir() { return mkdirs(new File(internal, "logs")); }
 

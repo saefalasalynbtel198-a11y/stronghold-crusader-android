@@ -8,6 +8,8 @@
  *   - "frame N" as text in the top-left corner
  *   - the frame number as a 16-bit strip in the bottom-left quadrant: 16 cells 16x16 px at y = 736..751,
  *     x = 16 + 20*i, bit 15 first; white = 1, black = 0 (read by the app to measure Wine's frame rate)
+ * Input it receives (mouse buttons, wheel, keys, characters; at most 200 lines) is written to stdout as
+ * "display-test: input ...", so CI can check that XTEST events from the app's X11 client reach a Windows program.
  * Runs until killed, or for [seconds] if given; exits 42. Progress goes to stdout.
  *   shc-display-test.exe [seconds]
  * Build: i686-w64-mingw32-gcc -O2 -Wall -Werror -static -o shc-display-test.exe shc-display-test.c -lgdi32
@@ -68,7 +70,45 @@ static void draw_frame(HDC dc) {
   }
 }
 
+static int g_inputs, g_moves;
+
+/* message time (Wine: the X server's event time) lets CI measure how long a button was held */
+static void input(const char *what, WPARAM wp, LPARAM lp, int pos) {
+  if (g_inputs++ >= 300) return;
+  if (pos) out("display-test: input %s %d,%d t=%ld\n", what, (int)(short)LOWORD(lp), (int)(short)HIWORD(lp), (long)GetMessageTime());
+  else out("display-test: input %s 0x%02x t=%ld\n", what, (unsigned)wp, (long)GetMessageTime());
+}
+
+/* Like a game that reads the mouse once per frame: samples the button state every 15 ms and reports changes. */
+static DWORD WINAPI poll_buttons(LPVOID unused) {
+  (void)unused;
+  int l = 0, r = 0, n = 0;
+  for (;;) {
+    int nl = (GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0, nr = (GetAsyncKeyState(VK_RBUTTON) & 0x8000) != 0;
+    if ((nl != l || nr != r) && n++ < 100) out("display-test: poll left %s right %s t=%lu\n", nl ? "down" : "up", nr ? "down" : "up", GetTickCount());
+    l = nl;
+    r = nr;
+    Sleep(15);
+  }
+  return 0;
+}
+
 static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
+  switch (msg) {
+    case WM_LBUTTONDOWN: input("WM_LBUTTONDOWN", wp, lp, 1); SetFocus(hwnd); return 0;
+    case WM_LBUTTONUP: input("WM_LBUTTONUP", wp, lp, 1); return 0;
+    case WM_LBUTTONDBLCLK: input("WM_LBUTTONDBLCLK", wp, lp, 1); return 0;
+    case WM_MOUSEMOVE:
+      if ((wp & (MK_LBUTTON | MK_RBUTTON)) && g_moves++ < 60) input(wp & MK_RBUTTON ? "WM_MOUSEMOVE+R" : "WM_MOUSEMOVE+L", wp, lp, 1);
+      return 0;
+    case WM_RBUTTONDOWN: input("WM_RBUTTONDOWN", wp, lp, 1); return 0;
+    case WM_RBUTTONUP: input("WM_RBUTTONUP", wp, lp, 1); return 0;
+    case WM_MOUSEWHEEL: input("WM_MOUSEWHEEL", (WPARAM)(short)HIWORD(wp) & 0xffff, lp, 0); return 0;
+    case WM_KEYDOWN: input("WM_KEYDOWN", wp, lp, 0); return 0;
+    case WM_KEYUP: input("WM_KEYUP", wp, lp, 0); return 0;
+    case WM_CHAR: input("WM_CHAR", wp, lp, 0); return 0;
+    default: break;
+  }
   if (msg == WM_PAINT) {
     PAINTSTRUCT ps;
     HDC dc = BeginPaint(hwnd, &ps);
@@ -87,6 +127,7 @@ int main(int argc, char **argv) {
   WNDCLASSA wc;
   memset(&wc, 0, sizeof wc);
   wc.lpfnWndProc = wndproc;
+  wc.style = CS_DBLCLKS;
   wc.hInstance = GetModuleHandleA(NULL);
   wc.hCursor = LoadCursorA(NULL, (LPCSTR)IDC_ARROW);
   wc.lpszClassName = "shc-display-test";
@@ -100,6 +141,7 @@ int main(int argc, char **argv) {
   SelectObject(g_mem, g_bmp);
   ShowWindow(hwnd, SW_SHOW);
   out("display-test: window %p created\n", (void *)hwnd);
+  CreateThread(NULL, 0, poll_buttons, NULL, 0, NULL);
   DWORD start = GetTickCount(), last_report = start;
   for (;;) {
     MSG m;

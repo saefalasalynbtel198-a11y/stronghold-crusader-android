@@ -14,13 +14,13 @@ public final class RuntimeStatus {
 
     public boolean isInstalled() { return layout.looksInstalled(); }
 
-    /** True once the game can actually be launched; false until the display server lands in BUILD 3. */
-    public boolean canLaunchGame() { return false; }
+    /** True if the runtime has what the game launch needs: Xvfb, cnc-ddraw and the DirectDraw test program (r6+). */
+    public boolean canLaunchGame() { return isInstalled() && layout.hasX11() && layout.cncDdraw().isFile() && layout.guiSmoke().isFile(); }
 
     public String describe() {
         if (isInstalled()) {
-            return "Runtime package installed at " + layout.root + ". Use Runtime → Run self-test to check this "
-                    + "device. Starting the game needs the display server, which arrives in BUILD 3.";
+            return "Runtime package installed at " + layout.root + (canLaunchGame() ? " (display server, cnc-ddraw: present)."
+                    : ". This runtime cannot start the game (no display server or cnc-ddraw): install runtime r6 or newer.");
         }
         return "Not installed. Open Runtime → Install runtime package… and select shc-runtime-*.zip "
                 + "(from the \"Runtime components\" GitHub Actions run).";

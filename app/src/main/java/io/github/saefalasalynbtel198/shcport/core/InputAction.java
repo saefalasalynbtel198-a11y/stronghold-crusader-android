@@ -5,7 +5,11 @@ import java.util.Locale;
 /** A Windows-level input event to inject into the game (mouse in game-pixel coordinates, keys as VK codes). */
 public final class InputAction {
 
-    public enum Type { MOVE, BUTTON_DOWN, BUTTON_UP, WHEEL, KEY_DOWN, KEY_UP }
+    /**
+     * PAUSE: the sender waits {@link #x} ms before the next action, so a button is held as long as a real mouse click
+     * (a game that reads the button state once per frame misses a press and release sent at the same instant).
+     */
+    public enum Type { MOVE, BUTTON_DOWN, BUTTON_UP, WHEEL, KEY_DOWN, KEY_UP, PAUSE }
 
     public enum Button { LEFT, RIGHT }
 
@@ -40,6 +44,7 @@ public final class InputAction {
     public static InputAction wheel(int notches) { return new InputAction(Type.WHEEL, 0, 0, null, notches, 0); }
     public static InputAction keyDown(int vk) { return new InputAction(Type.KEY_DOWN, 0, 0, null, 0, vk); }
     public static InputAction keyUp(int vk) { return new InputAction(Type.KEY_UP, 0, 0, null, 0, vk); }
+    public static InputAction pause(int ms) { return new InputAction(Type.PAUSE, ms, 0, null, 0, 0); }
 
     @Override public String toString() {
         switch (type) {
@@ -49,6 +54,7 @@ public final class InputAction {
             case WHEEL: return "WHEEL(" + wheel + ")";
             case KEY_DOWN: return String.format(Locale.ROOT, "KEY_DOWN(0x%02X)", keyCode);
             case KEY_UP: return String.format(Locale.ROOT, "KEY_UP(0x%02X)", keyCode);
+            case PAUSE: return "PAUSE(" + x + ")";
             default: return type.name();
         }
     }

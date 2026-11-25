@@ -1,0 +1,3 @@
+# SHA-256 of the SHC Port APK signing certificate (signing/shc-signing-cert.pem). Public information, not a secret.
+# CI refuses to sign with any key that does not belong to this certificate (docs/SIGNING.md).
+UNSET

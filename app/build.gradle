@@ -3,8 +3,8 @@ plugins {
 }
 
 // Version is defined once here; CI and release workflows read it via `gradle -q printVersion`.
-def appVersionName = '0.3.5-dev.1'
-def appVersionCode = 10
+def appVersionName = '0.6.1'
+def appVersionCode = 22
 
 android {
     // Windows test programs built by CI with mingw-w64 (app/winsrc, see .github/workflows/android-build.yml);
@@ -27,7 +27,8 @@ android {
         // apps use 28 for the same reason. Consequence: sideload distribution only (not Google Play).
         // See docs/ARCHITECTURE.md "Executing the runtime on Android".
         targetSdk 28
-        versionCode appVersionCode
+        // CI's update test builds a second APK with a higher version code (-PshcVersionCodeBump=1); never delivered.
+        versionCode appVersionCode + (project.findProperty('shcVersionCodeBump') ?: '0').toString().toInteger()
         versionName appVersionName
         // No native code in BUILD 1. When the runtime lands, it is arm64-v8a only (see ARCHITECTURE.md).
     }
@@ -43,14 +44,33 @@ android {
                 keyPassword System.getenv('SHC_KEY_PASSWORD')
             }
         }
+        // The SHC Port signing key (since 0.3.6-dev.3): derived in CI from the GitHub Actions secret SHC_SIGNING_SEED,
+        // checked against the committed certificate signing/shc-signing-cert.pem, written to a temporary keystore by
+        // scripts/ci/signing.sh (docs/SIGNING.md). Never in the repository.
+        shc {
+            def ks = System.getenv('SHC_SIGNING_KEYSTORE_FILE')
+            if (ks) {
+                storeFile file(ks)
+                storeType 'pkcs12'
+                storePassword System.getenv('SHC_SIGNING_KEYSTORE_PASSWORD')
+                keyAlias 'shc'
+                keyPassword System.getenv('SHC_SIGNING_KEYSTORE_PASSWORD')
+            }
+        }
     }
 
     buildTypes {
         debug {
-            versionNameSuffix '-debug'
+            // The app itself (application ID io.github.saefalasalynbtel198.shcport, label "SHC Port"). Signed with the
+            // standard automatic Android debug key of the build machine (owner's decision for 0.3.6, docs/SIGNING.md).
+            resValue 'string', 'app_label', 'SHC Port'
+            if (System.getenv('SHC_SIGNING_KEYSTORE_FILE')) {
+                signingConfig signingConfigs.shc     // optional, not used by CI for 0.3.6
+            }
         }
         release {
             minifyEnabled false
+            resValue 'string', 'app_label', 'SHC Port'
             if (System.getenv('SHC_KEYSTORE_FILE')) {
                 signingConfig signingConfigs.release
             }

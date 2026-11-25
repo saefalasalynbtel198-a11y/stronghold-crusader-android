@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 # Verifies a built APK: existence, size, package metadata, signature, native ABIs and absence of game data.
 # Usage: verify-apk.sh <apk> [expected-version-name]
-# Env:   EXPECTED_ABIS  space-separated ABI list the APK must contain exactly ("" = no native code)
+# Env:   EXPECTED_PACKAGE application ID (default io.github.saefalasalynbtel198.shcport)
+#        EXPECTED_ABIS  space-separated ABI list the APK must contain exactly ("" = no native code)
 #        BUILD_TOOLS    Android build-tools version (default 35.0.0)
 set -euo pipefail
 
 APK="${1:?usage: verify-apk.sh <apk> [expected-version-name]}"
 EXPECTED_VERSION="${2:-}"
-EXPECTED_PACKAGE="io.github.saefalasalynbtel198.shcport"
+EXPECTED_PACKAGE="${EXPECTED_PACKAGE:-io.github.saefalasalynbtel198.shcport}"
 EXPECTED_ABIS="${EXPECTED_ABIS:-}"
 BT="${ANDROID_HOME:?ANDROID_HOME not set}/build-tools/${BUILD_TOOLS:-35.0.0}"
 

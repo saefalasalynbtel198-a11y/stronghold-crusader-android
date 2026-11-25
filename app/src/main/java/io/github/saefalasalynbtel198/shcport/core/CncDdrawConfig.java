@@ -4,33 +4,47 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * Generates ddraw.ini for cnc-ddraw (MIT-licensed DirectDraw replacement that renders through
- * OpenGL). The game draws with DirectDraw; on Android the OpenGL path is far better supported by
- * the Wine/Mesa stack than Wine's own DirectDraw-over-GDI fallback.
+ * Generates ddraw.ini for cnc-ddraw (MIT-licensed DirectDraw replacement), BUILD 3 step 3.3.
  *
- * <p>Values are initial defaults; they must be tuned on real hardware (tracked in KNOWN_ISSUES).
+ * <p>Display path: the game draws with DirectDraw, cnc-ddraw presents through GDI ("renderer=gdi") into Wine's X11
+ * window on Xvfb, the app draws Xvfb's framebuffer. Xvfb has no OpenGL (GLX is disabled, the runtime has no Mesa),
+ * so the OpenGL and Direct3D renderers are not usable; renderer=gdi with fullscreen=true/windowed=false is the
+ * combination the runtime CI proved (runtime/scripts/test-display-qemu.sh, step 3). "Fullscreen" here means
+ * stretched to the X screen (1024×768) with the aspect ratio kept, without a display-mode change.
+ *
+ * <p>The file is not written next to the game: cnc-ddraw v7.0.0.0 reads the path from the environment variable
+ * CNC_DDRAW_CONFIG_FILE (src/config.c cfg_init). savesettings=0 keeps cnc-ddraw from writing window state back.
+ * cnc-ddraw applies a section named after the running executable over [ddraw]; the Stronghold sections repeat the
+ * defaults cnc-ddraw itself ships for these games (it only writes them when it creates a new ddraw.ini).
  */
 public final class CncDdrawConfig {
 
+    /** Executable names (without .exe) with cnc-ddraw's game settings. */
+    public static final String[] GAME_SECTIONS = {"Stronghold Crusader", "Stronghold_Crusader_Extreme"};
+
     private final Map<String, String> values = new LinkedHashMap<>();
+    /** X screen size other than 1024×768: offered to the game as a resolution (cnc-ddraw inject_resolution). */
+    private String inject;
 
     public CncDdrawConfig() {
-        values.put("width", "0");          // 0 = use the game's own resolution, scaled to the surface
+        values.put("renderer", "gdi");      // Xvfb has no OpenGL; proven in CI with cnc-ddraw v7.0.0.0
+        values.put("fullscreen", "true");   // stretched to the X screen ...
+        values.put("windowed", "false");    // ... without changing the display mode
+        values.put("width", "0");           // 0 = the game's own resolution
         values.put("height", "0");
-        values.put("fullscreen", "true");
-        values.put("windowed", "false");
-        values.put("maintas", "true");     // keep aspect ratio (matches ViewportTransform)
+        values.put("maintas", "true");      // keep the aspect ratio (as ViewportTransform)
         values.put("boxing", "false");
-        values.put("renderer", "opengl");
-        values.put("vsync", "true");
+        values.put("vsync", "false");       // not available with the GDI renderer
         values.put("maxfps", "60");
-        values.put("adjmouse", "true");    // scale mouse input together with the image
+        values.put("adjmouse", "true");     // scale mouse input together with the image
         values.put("devmode", "false");
         values.put("singlecpu", "true");
+        values.put("savesettings", "0");    // do not write window state back into this file
     }
 
     public CncDdrawConfig set(String key, String value) {
-        if (key.isEmpty() || key.contains("=") || key.contains("\n") || value.contains("\n")) {
+        if (key.isEmpty() || key.contains("=") || key.contains("\n") || key.contains("[") || value.contains("\n")
+                || value.contains("\r")) {
             throw new IllegalArgumentException("Invalid ini entry");
         }
         values.put(key, value);
@@ -39,10 +53,43 @@ public final class CncDdrawConfig {
 
     public String get(String key) { return values.get(key); }
 
+    /**
+     * For an X screen other than 1024×768 (Display Resolution setting): its size is added to the resolutions the game
+     * is offered (cnc-ddraw inject_resolution), so the game can render at exactly the screen size. At 1024×768 the file
+     * is unchanged from 0.5.1.
+     */
+    public CncDdrawConfig forScreen(int width, int height) {
+        inject = width == X11DisplayPlan.WIDTH && height == X11DisplayPlan.HEIGHT ? null : width + "x" + height;
+        return this;
+    }
+
+    /**
+     * Display Scaling Mode "Stretch" on an X screen that is not 4:3 (Device resolution): the game's own picture
+     * (normally 4:3) would sit in the screen with black bars drawn by cnc-ddraw itself, which the Android stretch
+     * cannot remove, so cnc-ddraw stretches it to the whole screen as well (maintas=false; adjmouse maps the mouse
+     * per axis). Every other combination leaves the file unchanged.
+     */
+    public CncDdrawConfig forScaling(ScalingMode mode, int screenWidth, int screenHeight) {
+        if (stretchesGame(mode, screenWidth, screenHeight)) values.put("maintas", "false");
+        return this;
+    }
+
+    /** True if {@link #forScaling} makes cnc-ddraw stretch the game picture (Stretch on a non-4:3 screen). */
+    public static boolean stretchesGame(ScalingMode mode, int screenWidth, int screenHeight) {
+        return mode.effective() == ScalingMode.STRETCH && (long) screenWidth * 3 != (long) screenHeight * 4;
+    }
+
     public String toIni() {
-        StringBuilder sb = new StringBuilder("; Generated by the Stronghold Crusader Android port\r\n[ddraw]\r\n");
+        StringBuilder sb = new StringBuilder("; Generated by the Stronghold Crusader Android port (not part of the game files)\r\n[ddraw]\r\n");
         for (Map.Entry<String, String> e : values.entrySet()) {
             sb.append(e.getKey()).append('=').append(e.getValue()).append("\r\n");
+        }
+        for (String game : GAME_SECTIONS) {
+            sb.append("\r\n[").append(game).append("]\r\n")
+                    .append("resolutions=2\r\n")
+                    .append("stronghold_hack=true\r\n")
+                    .append("adjmouse=").append(values.get("adjmouse")).append("\r\n");
+            if (inject != null) sb.append("inject_resolution=").append(inject).append("\r\n");
         }
         return sb.toString();
     }

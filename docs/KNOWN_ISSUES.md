@@ -1,5 +1,16 @@
 # Known issues and limitations
 
+## Display Scaling Mode (0.6.1, not yet verified on the phone)
+
+* Stretch changes proportions (4:3 shown at about 2:1 on the Xiaomi): circles look like ovals.
+* Fill crops the top and bottom on a wide phone; the cut-off parts (possibly part of the bottom HUD) cannot be reached.
+
+## Display Resolution (0.6.0, not yet verified on the phone)
+
+* The game's own resolution (saved in its options) is not changed by the app; set the same size in the game's options.
+* Device resolution: not 4:3; heaviest option; whether the game accepts such a size is unverified.
+* The diagnostic tests always run at 1024 × 768. Details: docs/DISPLAY_RESOLUTION.md.
+
 ## Blocking gameplay
 
 1. **The game cannot be started yet.** The runtime can be installed and self-tested (BUILD 2), but there is no
@@ -56,14 +67,37 @@
 * Xvfb is a patched copy of Debian's binary (three path strings); if Debian changes the binary layout the patch
   step fails the build instead of producing a broken package.
 
+## Game launch test (0.3.6 – 0.3.7)
+
+* 0.3.6 on the phone: the real game ended after about 2 s with exit code 0; Wine could not map its code sections
+  executable because the game was on Android shared storage (noexec). 0.3.7 runs it from a SHA-256-verified private
+  copy in internal storage (needs internal space for the whole game folder + 256 MB). Why the game chose to exit is not
+  known yet; the 0.3.7 report's exit analysis is meant to show it. 0.3.7 is not yet run on the phone.
+* 0.3.8 on the phone: the real game reached its "Enter Your Title" menu (no input in the launch test).
+* 0.4.0 on the phone: menu reached, cursor and keys work, taps did not click (press/release sent together).
+  0.4.1 holds each click 120 ms and adds a Right toggle: playable on the phone (menus, unit selection and orders,
+  building). Comfort of the controls in long play is being evaluated by an experienced player.
+* cnc-ddraw ignores mouse buttons while its cursor lock is off; if the lock is ever lost, the first click only
+  re-locks it (a second tap then works).
+* Sound: works on the owner's phone (0.5.1: music and effects, no noticeable delay). A very minor, brief stutter may
+  remain about every 10-20 s; barely noticeable, gameplay unaffected; left as is by the owner's decision (0.5.1 removed
+  Wine's silent lead-ins, which caused the more frequent stutter of 0.5.0).
+* When the app is in the background, Android may freeze or stop it (no foreground service yet); return to the game
+  through Start Game. If Android kills the app, the next start stops leftover Wine/Xvfb processes.
+* The game screen's long press = right click uses the touch settings' long-press time (Control settings).
+* Intro videos (Bink) run under Box64 and cannot be skipped yet.
+* The imported 2012 GOG build is older than 1.41 and unverified (UNKNOWN).
+* Android external storage cannot be made read-only for the game; changes are detected and reported, not prevented.
+
 ## Display test (0.3.2-dev.1 – 0.3.5-dev.1)
 
 * 0.3.2–0.3.4 create the Wine prefix only if `files/prefix` already exists (left by the self-test or the Wine tests);
   with fresh app data wineboot fails with `chdir to .../prefix/wine : No such file or directory`. Fixed in 0.3.5-dev.1
   — CI-reproduced and CI-tested, not yet device-tested.
-* CI debug APKs are signed with the CI runner's debug key. If the key differs between builds, Android refuses the
-  update and an uninstall removes the runtime, the prefix and imported files. The APK check prints the certificate
-  digest; a fixed debug key would need a keystore in GitHub secrets (owner decision).
+* Up to 0.3.6-dev.2, CI debug APKs were signed with a new key on every CI run (0.3.5-dev.1 `fcd0e71c…`), so Android
+  refuses updates between them; uninstalling removes the runtime, the Wine prefix and the imported game copy. This is
+  the likely reason `files/prefix` was missing before the 0.3.4 run. 0.3.6 is also debug-signed (owner's decision): 0.3.5-dev.1
+  must be uninstalled first, and a later APK may need the same (docs/SIGNING.md).
 
 * 0.3.3-dev.1 passes the hard-link check on the device but Xvfb fails with "Cannot write display number to fd 3"
   (Android's mksh closes fd 3 on exec); fixed in 0.3.4-dev.1 (`-displayfd 1`, no shell) — CI-reproduced and

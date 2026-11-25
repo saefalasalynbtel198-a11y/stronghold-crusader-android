@@ -1,0 +1,145 @@
+# BUILD 3 step 3.3: launching the imported game through the step 3.2 display path
+
+Status: implemented, CI-tested with a stand-in game; **not yet run on the owner's phone**. The real game cannot run
+in CI (proprietary files). Start Game stays disabled; the game launch test is a diagnostic screen.
+
+## Starting point
+
+* Step 3.2 passed on the owner's phone (app 0.3.5-dev.1, runtime r6): Xvfb :37, Wine window, pixel check PASS,
+  ~27 fps, pause/resume; Wine tests 6/6, self-test 4/4.
+* Imported game: GOG "Stronghold Crusader.exe" and "Stronghold_Crusader_Extreme.exe", built 2012-10-02 (pre-1.41),
+  classified UNKNOWN (owner-reported hashes, no SecuROM): a launch attempt is allowed, the build is not verified.
+* The old, unused `WineLaunchPlan` would have copied ddraw.dll into the game folder and configured cnc-ddraw's
+  OpenGL renderer. Both are unsuitable: the game files must not be modified, and Xvfb has no OpenGL.
+
+## Design (app 0.3.6-dev.1; runtime r6 unchanged)
+
+Runtime → Game launch test (the display test activity in game mode). Stages in order, each only after the previous
+one succeeded (core/DisplayStartOrder):
+
+1. **Runtime and game check**: runtime has Xvfb, cnc-ddraw and `win/shc-gui-smoke.exe`; the imported folder is
+   inspected again (GameInstallation: executables, classification, asset check); only an allowed build is started.
+   A manifest of the game folder is taken (core/GameFolderManifest: every file with size and mtime, .exe/.dll with
+   SHA-256).
+2. **Wine prefix**: the device-verified prefix stage of step 3.2 (WineTestRunner.ensurePrefix).
+3. **Xvfb**: the step 3.2 XvfbStarter (`-displayfd 1`, :37–:40).
+4. **Game setup, inside the prefix only** (core/GameSetup):
+   * `dosdevices/d:` → the game folder (symlink, as in the Wine tests);
+   * the runtime's cnc-ddraw v7.0.0.0 `ddraw.dll` → `C:\windows\syswow64\ddraw.dll`, SHA-256 compared with the
+     runtime's copy;
+   * `C:\shc-port\ddraw.ini` (core/CncDdrawConfig): `renderer=gdi`, `fullscreen=true`, `windowed=false`,
+     `maintas=true`, `savesettings=0`, plus the `[Stronghold Crusader]`/`[Stronghold_Crusader_Extreme]` sections
+     cnc-ddraw ships for these games (`resolutions=2`, `stronghold_hack=true`, `adjmouse=true`).
+   cnc-ddraw finds the file through `CNC_DDRAW_CONFIG_FILE` (src/config.c, cfg_init), so nothing is created next to
+   the game or in syswow64.
+5. **DirectDraw pre-check**: the runtime's own `shc-gui-smoke.exe ddraw` (1024×768×16 primary surface, Lock/Unlock as
+   the game) with the game's environment. Required: exit 42, `ddraw.dll` loaded from syswow64, its four colours in
+   Xvfb's framebuffer. If it fails, the game is not started (the fault is in the path, not in the game).
+6. **Game**: `box64 wine "D:\<exe>"`, working directory = the game folder (Wine maps it to `D:\`), environment
+   = the step 3.2 Wine environment with DISPLAY, plus `WINEDLLOVERRIDES=...;ddraw=n` (cnc-ddraw only; a missing
+   DLL fails visibly instead of falling back to Wine's DirectDraw), `CNC_DDRAW_CONFIG_FILE=C:\shc-port\ddraw.ini`,
+   `WINEDEBUG=err+all,fixme-all,+loaddll`.
+7. **Monitoring**: process state and exit code; cnc-ddraw load seen in the `+loaddll` log; picture (core/FrameProbe:
+   share of non-black pixels, colours, change between samples); renderer uploads on any change of a 128×96 sample
+   grid; PNG snapshots of the X screen at 15/30/60/120 s and then every 2 minutes (at most 12, in the app's logs);
+   CPU/memory timeline.
+8. **Stop**: wineserver -k, Xvfb stopped, game folder compared with the manifest: any added, removed or modified
+   file is reported and marks the run FAILED.
+
+No input (step 3.4) and no sound (phase 4) in this step.
+
+## Risks
+
+* Only the owner's phone can run the real game; CI covers the path with a stand-in.
+* The 2012 build predates 1.41; cnc-ddraw's Stronghold settings were written for the HD releases.
+* No audio driver for Wine on Android: Miles Sound System / DirectSound may fail or wait at start-up.
+* Bink intro videos (`binkw32.dll`) under Box64: CPU load or crashes; they cannot be skipped without input.
+* Game files on external storage (FUSE): slower reads; CPU-only rendering (cnc-ddraw GDI → X11, no MIT-SHM).
+* If the game writes into its own folder, Android external storage cannot be made read-only for it: the manifest
+  check reports it.
+* Unknown registry expectations of this build: visible in the err:/+loaddll digest of the report.
+
+## Tests
+
+* Unit tests: launch plan (argv, environment, working directory, file locations outside the game folder, rejected
+  file names), ddraw.ini content, setup (writes only into the prefix, repeated setup, missing DLL, D: that is a real
+  directory, missing executable), manifest (added/removed/modified by hash), frame probe (black/still/changing).
+* CI qemu job, step 4b: the app's WineLaunchPlan/GameSetup/GameFolderManifest via DisplayCli `game-launch` with a
+  stand-in game folder (the runtime's DirectDraw test program copied as "Stronghold Crusader.exe", plus dummy data):
+  setup, the pre-check as the app runs it, the D:\ launch, cnc-ddraw native from syswow64 in `+loaddll`, no
+  ddraw.ini next to the game or in syswow64, colours in Xvfb, exit 42, game folder unchanged; its syscalls are part
+  of the Android allowlist check.
+* Emulator smoke test: the game launch test screen opens (not started: no runtime or game in the emulator).
+
+## CI result (commit dbdea7c, Android build 44933729139, Runtime components 44933729122)
+
+Linux/qemu and x86_64 emulator, not Android, not the real game:
+* 90/90 unit tests; lint; APK verification; emulator smoke test (display test and game launch test screens open).
+* qemu job: all step 3.2 checks still PASS; step 4b stand-in game: setup PASS; DirectDraw pre-check PASS (exit 42,
+  `Loaded L"C:\\windows\\system32\\ddraw.dll" ...: native` — WoW64 shows syswow64 as system32 — four colours);
+  launch from D:\ PASS (exit 42, native ddraw, colours); no ddraw.ini next to the game or in syswow64; game folder
+  unchanged; 0 link calls; 48 traces within the Android allowlist.
+* Runtime r6 / Wine / cnc-ddraw regressions: all jobs PASS. No file under runtime/ changed.
+
+## Device result of 0.3.6 and the 0.3.7 fix
+
+Owner's report (0.3.6, runtime r6, Xiaomi 25053PC47G, Android 16): runtime, prefix, Xvfb and the DirectDraw pre-check
+PASS; the real game process ended after about 2 s with exit code 0. The Wine log contains
+`err:virtual:map_image_into_view failed to set 60000020 protection on ... noexec filesystem?` for
+`Stronghold Crusader.exe`, `binkw32.dll` and `mss32.dll`. The pasted report was cut off before the end of the Wine log,
+so the reason for the exit itself is not in it.
+
+Verified from the sources of the components in runtime r6:
+* Wine 11 `dlls/ntdll/unix/virtual.c` `map_image_into_view`: the ERR is written when `mprotect` with PROT_EXEC fails
+  for a section; Wine then continues. It appears only for files on `/storage/emulated/0/...` (Android shared storage
+  is mounted noexec), never for the runtime's own programs in internal storage.
+* Box64 v0.3.8 `my_mprotect` updates its page protection only when the host call succeeds; the dynarec
+  (`internalDBGetBlock`) compiles only pages marked executable, otherwise `DynaRun` falls back to the interpreter. The
+  noexec mapping alone does not crash the game; it forces the much slower interpreter for its code.
+* wineserver gives exit code 1 to a process that dies without calling ExitProcess (`kill_process`, violent). Exit code
+  0 means the game ended itself (ExitProcess(0) or returning from WinMain).
+
+Changes in 0.3.7 (runtime r6 unchanged):
+* core/PrivateGameCopy: the imported folder is synced into `files/game-private` (internal storage): each new or changed
+  file is copied through `<name>.shc-partial`, SHA-256 computed while reading the original and again from the written
+  file, fsync, rename. A manifest (size, mtime, SHA-256) lets later launches reuse the copy; EXE/DLL/ASI/M3D/FLT files
+  are hashed again on every launch and recopied if they differ. Files the game creates in the copy are kept. Free space
+  is checked first. Symlinks are not followed. The imported folder is only read and still compared before/after.
+* WineLaunchPlan: D: and the working directory point to the private copy.
+  `WINEDEBUG=err+all,fixme-all,+loaddll,+seh,+relay`, with `HKCU\Software\Wine\Debug\RelayInclude` limited to
+  ExitProcess, TerminateProcess, MessageBox*, CreateWindowEx*, ShowWindow, CreateFile*, CreateProcess*, WinExec,
+  ShellExecuteA, CreateMutexA, FindWindowA, GetDriveTypeA, DirectDrawCreate(Ex). `BOX64_SHOWSEGV=1`,
+  `BOX64_DYNAREC_MISSING=1`.
+* core/GameExitAnalysis: the report's "Why the game ended / what it did" section (ExitProcess code and caller, windows,
+  message boxes, files that could not be opened, exceptions, noexec sections, Box64 messages) and the last 60 log lines.
+
+CI cannot reproduce the noexec error (qemu-user maps PROT_EXEC to PROT_READ on the host). CI checks the copy (SHA-256,
+reuse, re-verification, source unchanged), the launch from the private copy, and that the relay trace shows the
+stand-in's ExitProcess(42) under Box64/WoW64. Whether the real game now runs can only be seen on the phone.
+
+## Device result of 0.3.7: DirectDraw pre-check regression, fixed in 0.3.8
+
+Owner's reports (0.3.7, GOG 2012 build and DRM-free 2018 build): Xvfb, prefix, private copy, cnc-ddraw in syswow64
+(SHA-256 OK) and the pixel check fine; `DirectDraw pre-check FAILED (exit 42 ... Wine: NO native load of ddraw.dll in the
+log)`; the game was not started. Same result for both builds: the game build is not involved (the game never ran).
+
+Cause, from the code (0.3.6 → 0.3.7 diff):
+* `WineLaunchPlan.WINEDEBUG` changed from `err+all,fixme-all,+loaddll` (0.3.6, pre-check PASS on the phone) to
+  `err+all,fixme-all,+loaddll,+seh,+relay`, and the pre-check runs with the same environment (`plan.env`).
+* `reg add ...RelayInclude` ran with that environment too, i.e. under an unfiltered relay trace itself, limited to
+  120 s by `run(...)`. Without a filter, +relay traces every exported call: the pre-check's message loop
+  (PeekMessage/Sleep/GetTickCount, 20 times a second, plus every startup call).
+* The verdict read only `tail(pcLog, 2_000_000)`. The `Loaded L"C:\\windows\\system32\\ddraw.dll" ...: native` line is
+  written when the program calls LoadLibrary at its start, so a log over 2 MB hides it.
+* Exit 42 itself proves the program loaded a ddraw.dll, created DirectDraw, set 1024×768×16, created the primary
+  surface and wrote frames; with `ddraw=n` only the native DLL (cnc-ddraw) can load. The failure was in the proof.
+* CI did not catch it: DisplayCli read the whole log, and its reg.exe call did not even get the plan's environment
+  (no WINEPREFIX), so CI also ran unfiltered and still passed.
+
+0.3.8: pre-check with `WINEDEBUG_PRECHECK = err+all,fixme-all,+loaddll`; reg.exe with `err+all,fixme-all` and the
+plan's prefix, 600 s, exit code checked; the game gets `+relay` only when the filter was set (otherwise
+`err+all,fixme-all,+loaddll,+seh`). core/DdrawPrecheck streams the whole log and requires exit 42, the native
++loaddll line, the program's `ddraw.dll = ...\system32\ddraw.dll`, `SetDisplayMode(1024,768,16) 0x00000000`,
+`CreateSurface(primary) 0x00000000`, frames written > 0, and the four colours. App and CI use this same class. CI
+also re-runs the 0.3.7 situation once (pre-check under +relay without filter) and reports the log size, the line
+number of the load line, and what the 0.3.7 2 MB check and the whole-log check find.

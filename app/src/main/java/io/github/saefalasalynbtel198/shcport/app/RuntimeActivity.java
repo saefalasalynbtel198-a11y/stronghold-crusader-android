@@ -47,6 +47,7 @@ public final class RuntimeActivity extends Activity {
     private Button selfTest;
     private Button wineTest;
     private Button displayTest;
+    private Button gameLaunchTest;
     private volatile boolean busy;
 
     @Override
@@ -69,6 +70,9 @@ public final class RuntimeActivity extends Activity {
         displayTest = Ui.button(this, "Display test (BUILD 3 step 3.2)…",
                 v -> startActivity(new Intent(this, DisplayTestActivity.class)));
         col.addView(displayTest);
+        gameLaunchTest = Ui.button(this, "Game launch test (BUILD 3 step 3.3, diagnostic)…",
+                v -> startActivity(new Intent(this, DisplayTestActivity.class).putExtra(DisplayTestActivity.EXTRA_MODE, DisplayTestActivity.MODE_GAME)));
+        col.addView(gameLaunchTest);
         report = Ui.body(this, "");
         col.addView(report);
         setContentView(Ui.scroll(this, col));
@@ -83,6 +87,7 @@ public final class RuntimeActivity extends Activity {
         selfTest.setEnabled(!busy && rt.looksInstalled());
         wineTest.setEnabled(!busy && rt.looksInstalled() && rt.peSmoke32().isFile());
         displayTest.setEnabled(!busy);   // the screen itself explains a missing r6 runtime
+        gameLaunchTest.setEnabled(!busy); // ... and a missing game
     }
 
     private void pick() {

@@ -17,6 +17,10 @@ import java.io.File;
 import java.util.Locale;
 
 import io.github.saefalasalynbtel198.shcport.BuildConfig;
+import io.github.saefalasalynbtel198.shcport.core.GameReadiness;
+import io.github.saefalasalynbtel198.shcport.core.PrivateGameCopy;
+import io.github.saefalasalynbtel198.shcport.core.RuntimeLayout;
+import io.github.saefalasalynbtel198.shcport.core.WinePrefixSetup;
 
 /** Launcher home: import, validation status, runtime status and entry points to the other screens. */
 public final class MainActivity extends Activity implements GameImporter.Listener {
@@ -41,8 +45,13 @@ public final class MainActivity extends Activity implements GameImporter.Listene
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         // Debug builds only: lets the CI emulator test open the (not exported) display test screen.
-        if (BuildConfig.DEBUG && savedInstanceState == null && "display-test".equals(getIntent().getStringExtra("shc.open"))) {
-            startActivity(new android.content.Intent(this, DisplayTestActivity.class));
+        String open = getIntent().getStringExtra("shc.open");
+        if (BuildConfig.DEBUG && savedInstanceState == null && "play".equals(open)) {
+            startActivity(new android.content.Intent(this, GameActivity.class));
+        }
+        if (BuildConfig.DEBUG && savedInstanceState == null && ("display-test".equals(open) || "game-launch".equals(open))) {
+            startActivity(new android.content.Intent(this, DisplayTestActivity.class)
+                    .putExtra(DisplayTestActivity.EXTRA_MODE, "game-launch".equals(open) ? DisplayTestActivity.MODE_GAME : DisplayTestActivity.MODE_DISPLAY));
         }
         app = (ShcApplication) getApplication();
 
@@ -50,7 +59,7 @@ public final class MainActivity extends Activity implements GameImporter.Listene
         col.addView(Ui.title(this, "Stronghold Crusader — Android port"));
         col.addView(Ui.muted(this, "Development build " + BuildConfig.VERSION_NAME
                 + ". Unofficial community project, not affiliated with Firefly Studios. "
-                + "You need your own legally obtained copy of the game (Stronghold Crusader HD 1.41 from GOG or Steam)."));
+                + "You need your own legally obtained copy of Stronghold Crusader (for example from GOG or Steam)."));
 
         col.addView(Ui.heading(this, "1. Game files"));
         gameStatus = Ui.body(this, "Checking…");
@@ -74,16 +83,20 @@ public final class MainActivity extends Activity implements GameImporter.Listene
         col.addView(Ui.button(this, "Runtime: install / self-test", v -> startActivity(new Intent(this, RuntimeActivity.class))));
 
         col.addView(Ui.heading(this, "3. Play"));
-        playButton = Ui.button(this, "Start game", v -> Toast.makeText(this,
-                "Not available in this build — see the reason above.", Toast.LENGTH_LONG).show());
-        playReason = Ui.muted(this, "");
+        playButton = Ui.button(this, "Start Game", v -> startGame());
+        playButton.setEnabled(false);
+        playReason = Ui.muted(this, "Checking…");
         col.addView(playButton);
         col.addView(playReason);
+        col.addView(Ui.muted(this, "Controls: tap = left click, long press = right click, drag = drag/select, "
+                + "two fingers = scroll the map, pinch = mouse wheel. Side keys: Esc, Enter, Space, Right (one finger holds "
+                + "the right button: right click, camera view), Keys (soft keyboard), Report, Exit. "
+                + "Troubleshooting: Runtime → Game launch test (diagnostic)."));
 
         col.addView(Ui.heading(this, "Tools"));
         col.addView(Ui.row(this,
                 Ui.button(this, "Touch controls test", v -> startActivity(new Intent(this, TouchTestActivity.class))),
-                Ui.button(this, "Control settings", v -> startActivity(new Intent(this, SettingsActivity.class))),
+                Ui.button(this, "Settings (sound, controls)", v -> startActivity(new Intent(this, SettingsActivity.class))),
                 Ui.button(this, "Diagnostics", v -> startActivity(new Intent(this, DiagnosticsActivity.class)))));
         col.addView(Ui.row(this,
                 Ui.button(this, "Export saves…", v -> pickFolder(REQ_EXPORT_SAVES)),
@@ -150,23 +163,50 @@ public final class MainActivity extends Activity implements GameImporter.Listene
         final File gameDir = app.paths().gameDir();
         new Thread(() -> {
             final GameInstallation inst = GameInstallation.inspect(gameDir);
-            main.post(() -> show(inst, rs));
+            final GameReadiness ready = GameReadiness.evaluate(facts(inst, rs));
+            main.post(() -> show(inst, ready));
         }, "inspect-game").start();
     }
 
-    private void show(GameInstallation inst, RuntimeStatus rs) {
+    private void show(GameInstallation inst, GameReadiness ready) {
         if (isFinishing()) return;
         lastInstallation = inst;
         gameStatus.setText(inst.present ? "Imported to " + app.paths().gameDir() + "\n\n" + inst.describe() : inst.describe());
-        GameInstallation.Executable candidate = inst.launchCandidate();
-        String reason;
-        if (!inst.present) reason = "Import your game folder first.";
-        else if (candidate == null) reason = "No supported game executable was found in the imported folder (see details above).";
-        else if (!rs.isInstalled()) reason = "Game files are ready (" + candidate.name + "). Install the runtime package next (Runtime screen).";
-        else if (!rs.canLaunchGame()) reason = "Game files and runtime are installed. Launching the game needs the display server (BUILD 3); run the runtime self-test meanwhile.";
-        else reason = "Ready.";
-        playButton.setEnabled(inst.present && candidate != null && rs.canLaunchGame());
-        playReason.setText(reason);
+        playButton.setEnabled(ready.canStart);
+        android.util.Log.i(ShcApplication.TAG, "Start Game " + (ready.canStart ? "enabled" : "disabled") + ": " + ready.reason);
+        playButton.setText(app.playLife.active() ? "Return to the game" : "Start Game");
+        playReason.setText(ready.reason + "\n" + String.join("\n", ready.checklist));
+    }
+
+    /** Facts for {@link GameReadiness}; reads files: background thread. */
+    private GameReadiness.Facts facts(GameInstallation inst, RuntimeStatus rs) {
+        AppPaths p = app.paths();
+        RuntimeLayout rt = new RuntimeLayout(p.runtimeDir());
+        GameReadiness.Facts f = new GameReadiness.Facts();
+        f.runtimeInstalled = rs.isInstalled();
+        f.runtimeHasX11 = rt.hasX11();
+        f.runtimeHasCncDdraw = rt.cncDdraw().isFile();
+        f.runtimeHasDdrawTest = rt.guiSmoke().isFile();
+        f.gameImported = inst.present;
+        GameInstallation.Executable c = inst.launchCandidate();
+        f.launchExe = c == null ? null : c.name;
+        f.prefixComplete = WinePrefixSetup.isComplete(p.prefixDir());
+        f.importRunning = app.importer().isRunning();
+        f.sessionRunning = app.playLife.active();
+        if (inst.present) {
+            try {
+                f.bytesToCopy = PrivateGameCopy.bytesToCopy(p.gameDir(), p.privateGameDir());
+                File parent = p.privateGameDir().getParentFile();
+                if (parent != null) f.freeInternal = new android.os.StatFs(parent.getPath()).getAvailableBytes();
+            } catch (Exception ignored) {
+                // unknown: the launch checks the space again before copying
+            }
+        }
+        return f;
+    }
+
+    private void startGame() {
+        startActivity(new Intent(this, GameActivity.class));
     }
 
     private GameInstallation lastInstallation;

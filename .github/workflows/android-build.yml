@@ -22,6 +22,7 @@ env:
 
 jobs:
   build:
+    # Signed with the standard automatic Android debug key of the build machine (owner's decision for 0.3.6).
     name: Test, lint, build and verify APK
     runs-on: ubuntu-24.04
     timeout-minutes: 45
@@ -29,7 +30,7 @@ jobs:
       - name: Check out
         uses: actions/checkout@v4
 
-      - name: Repository hygiene (no proprietary game files)
+      - name: Repository hygiene (no proprietary game files, no key files)
         run: bash scripts/ci/check-no-proprietary-files.sh
 
       - name: Set up JDK 17
@@ -45,7 +46,7 @@ jobs:
           yes | "$SDKM" --licenses > /dev/null || true
           "$SDKM" --install "platforms;${PLATFORM}" "build-tools;${BUILD_TOOLS}" "platform-tools" > sdk-install.log
           test -x "$ANDROID_HOME/build-tools/${BUILD_TOOLS}/aapt2" || { cat sdk-install.log; echo "::error::build-tools ${BUILD_TOOLS} missing"; exit 1; }
-          echo "Android SDK: $ANDROID_HOME" 
+          echo "Android SDK: $ANDROID_HOME"
 
       - name: Set up Gradle ${{ env.GRADLE_VERSION }}
         uses: gradle/actions/setup-gradle@v4
@@ -69,6 +70,9 @@ jobs:
             app/winsrc/shc-display-test.c -lgdi32
           sha256sum app/build/generated/shc-assets/shc-display-test.exe
 
+      - name: Build the game-sound ALSA plugin (arm64, Debian trixie alsa-lib/glibc as runtime r6; APK asset)
+        run: bash scripts/ci/build-alsa-plugin.sh app/build/generated/shc-assets/audio/libasound_module_pcm_shc.so
+
       - name: Unit tests
         run: |
           mkdir -p build-logs
@@ -77,27 +81,32 @@ jobs:
 
       - name: Lint
         run: |
+          mkdir -p build-logs
           set -o pipefail
           gradle --no-daemon --stacktrace :app:lintDebug 2>&1 | tee build-logs/lint.log
 
-      - name: Assemble debug APK
+      - name: Assemble APK (io.github.saefalasalynbtel198.shcport, standard debug signing)
         run: |
+          mkdir -p build-logs
           set -o pipefail
           gradle --no-daemon --stacktrace :app:assembleDebug 2>&1 | tee build-logs/assemble.log
+          cp app/build/outputs/apk/debug/app-debug.apk "SHC-Port-${{ steps.version.outputs.name }}.apk"
 
-      - name: Verify APK
-        run: bash scripts/ci/verify-apk.sh app/build/outputs/apk/debug/app-debug.apk "${{ steps.version.outputs.name }}"
+      - name: Verify APK (package, version, contents, signature)
+        run: bash scripts/ci/verify-apk.sh "SHC-Port-${{ steps.version.outputs.name }}.apk" "${{ steps.version.outputs.name }}"
 
       - name: Check the display test program is in the APK
         run: |
-          unzip -l app/build/outputs/apk/debug/app-debug.apk | tee /tmp/apk-list.txt | grep "assets/shc-display-test.exe"
-          unzip -p app/build/outputs/apk/debug/app-debug.apk assets/shc-display-test.exe | sha256sum
+          unzip -l "SHC-Port-${{ steps.version.outputs.name }}.apk" | tee /tmp/apk-list.txt | grep "assets/shc-display-test.exe"
+          unzip -p "SHC-Port-${{ steps.version.outputs.name }}.apk" assets/shc-display-test.exe | sha256sum
+          grep "assets/audio/libasound_module_pcm_shc.so" /tmp/apk-list.txt
+          unzip -p "SHC-Port-${{ steps.version.outputs.name }}.apk" assets/audio/libasound_module_pcm_shc.so | sha256sum
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: Stronghold-Crusader-Android-APK
-          path: app/build/outputs/apk/debug/app-debug.apk
+          path: SHC-Port-${{ steps.version.outputs.name }}.apk
           if-no-files-found: error
           retention-days: 30
 
@@ -118,16 +127,29 @@ jobs:
     name: Emulator smoke test (x86_64, API 30)
     needs: build
     runs-on: ubuntu-24.04
-    timeout-minutes: 40
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      actions: read      # download the 0.3.5-dev.1 APK artifact of an earlier run
     steps:
       - name: Check out
         uses: actions/checkout@v4
 
-      - name: Download APK
+      - name: Download the main APK
         uses: actions/download-artifact@v4
         with:
           name: Stronghold-Crusader-Android-APK
           path: apk
+
+      # The owner's installed 0.3.5-dev.1 APK (CI debug key fcd0e71c...), to confirm on the emulator that it cannot be
+      # updated in place (so the one-time uninstall on the phone is expected) before the new app is installed.
+      - name: Download the 0.3.5-dev.1 APK (run 44928832593)
+        uses: actions/download-artifact@v4
+        with:
+          name: Stronghold-Crusader-Android-APK
+          path: old-apk
+          run-id: 44928832593
+          github-token: ${{ github.token }}
 
       - name: Enable KVM
         run: |
@@ -144,7 +166,7 @@ jobs:
           force-avd-creation: false
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           disable-animations: true
-          script: bash scripts/ci/smoke-test.sh apk/app-debug.apk smoke-test-output
+          script: bash scripts/ci/smoke-test.sh apk/SHC-Port-*.apk smoke-test-output old-apk/app-debug.apk
 
       - name: Upload smoke-test output
         if: always()
@@ -185,13 +207,20 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends qemu-user-static binfmt-support gcc-mingw-w64-i686 mksh xvfb
-      - name: Build shc-display-test.exe (as for the APK)
+      - name: Build shc-display-test.exe (as for the APK), shc-audio-test.exe (CI only) and the ALSA plugin (as for the APK)
         run: |
           mkdir -p out
           i686-w64-mingw32-gcc -O2 -Wall -Werror -static -o out/shc-display-test.exe app/winsrc/shc-display-test.c -lgdi32
-          sha256sum out/shc-display-test.exe
+          i686-w64-mingw32-gcc -O2 -Wall -Werror -static -o out/shc-audio-test.exe app/winsrc/shc-audio-test.c -ldsound -ldxguid -lm
+          i686-w64-mingw32-gcc -O2 -Wall -Werror -static -o out/shc-ddraw-input-test.exe app/winsrc/shc-ddraw-input-test.c -lgdi32
+          bash scripts/ci/build-alsa-plugin.sh out/libasound_module_pcm_shc.so
+          sha256sum out/*.exe
+      - name: Game-sound plugin with the app's receiver (runner build of the same source; on-time, late writer, two streams, no app)
+        run: |
+          sudo apt-get install -y --no-install-recommends libasound2-dev
+          bash scripts/ci/test-audio-plugin-native.sh "$RUNNER_TEMP/audio-native"
       - name: Xvfb with the app's command line, test program through Box64 + Wine, framebuffer read by the app's code
-        run: bash scripts/ci/test-app-display-qemu.sh r6/shc-runtime-r6-*.zip out/shc-display-test.exe "$RUNNER_TEMP/appdisplay"
+        run: bash scripts/ci/test-app-display-qemu.sh r6/shc-runtime-r6-*.zip out/shc-display-test.exe "$RUNNER_TEMP/appdisplay" out/libasound_module_pcm_shc.so out/shc-audio-test.exe out/shc-ddraw-input-test.exe
       - name: Upload results
         if: always()
         uses: actions/upload-artifact@v4

@@ -12,10 +12,10 @@ Last updated: 2026-11-20 (BUILD 2 device report 2: glibc patched for Android sec
 | 3d | BUILD 2 device acceptance | COMPLETED (owner-reported) | Owner, 2026-11-20, Xiaomi 25053PC47G Android 16: patched glibc, threads/robust mutex/fork, Box64 v0.3.8, `wine --version` PASS with runtime r3 / app 0.2.2-dev.1. |
 | 5a | BUILD 3 phase 1–2: Wine prefix + Windows PE smoke test | COMPLETED | Owner's device report 2026-11-21 (Xiaomi 25053PC47G, Android 16, app 0.3.1-dev.1, runtime r5): runtime self-test 4/4 required steps PASS, Wine tests 6/6 required steps PASS (prefix init, wineserver -w, wineserver dir, PE smoke 64-bit and 32-bit). Fix: glibc `accept` → `accept4` (milestone 5b section). |
 | 5b | CI for the fix (APK 0.3.1-dev.1, runtime r5) | COMPLETED | Repository made public, Actions unblocked. [Android build 44823423581](https://github.com/saefalasalynbtel198-a11y/stronghold-crusader-android/actions/runs/44823423581) (APK SHA-256 `be714a5d…daf19`), [Runtime components 44823423675](https://github.com/saefalasalynbtel198-a11y/stronghold-crusader-android/actions/runs/44823423675) 7/7 jobs (qemu Box64+Wine: no syscall outside Android's allowlist). |
-| 5c | BUILD 3 phase 3: display, game window, touch input | IN PROGRESS | 3.0 feasibility PASS (CI). 3.1 runtime r6: device self-test PASS, Wine tests 6/6 PASS (owner, 2026-11-21). **3.2 in-app display: PASSED on the owner's phone** (app 0.3.5-dev.1, runtime r6, Xiaomi 25053PC47G Android 16, 2026-11-21: Wine prefix ready/kept, Xvfb :37, Wine window drawn, pixel check PASS, Wine content ~27 fps, pause/resume OK; Wine tests 6/6, self-test 4/4); CI evidence docs/evidence/step3.2-*.md. 3.3 (game launch) next; 3.4 (touch input) not started. Start Game disabled. |
+| 5c | BUILD 3 phase 3: display, game window, touch input | IN PROGRESS | 3.0 feasibility PASS (CI). 3.1 runtime r6: device self-test PASS, Wine tests 6/6 PASS (owner, 2026-11-21). **3.2 in-app display: PASSED on the owner's phone** (app 0.3.5-dev.1, runtime r6, Xiaomi 25053PC47G Android 16, 2026-11-21: Wine prefix ready/kept, Xvfb :37, Wine window drawn, pixel check PASS, Wine content ~27 fps, pause/resume OK; Wine tests 6/6, self-test 4/4); CI evidence docs/evidence/step3.2-*.md. 3.3 game launch test: implemented, CI-tested with a stand-in game (docs/evidence/step3.3-game-launch.md) — **device test with the real game pending**. 3.4 (touch input) not started. Start Game disabled. |
 | 4 | Complete Android application (AR/EN, themes, game launch screen) | NOT STARTED | |
 | 5 | Runtime integration: display server, Wine prefix, cnc-ddraw, audio | IN PROGRESS | Wine prefix: COMPLETED (5a). Display + cnc-ddraw: 5c. Audio: phase 4. |
-| 6 | Touch controls injected into the game | NOT STARTED | Mapper done and unit-tested; injection = plan step 3.3 (XTEST) |
+| 6 | Touch controls injected into the game | IMPLEMENTED (0.4.0, CI-verified; device test pending) | X11Input (XTEST) + TouchMouseMapper; CI: clicks/drag/wheel/keys arrive as Windows messages under Wine |
 | 7–9 | APK build / automated tests / emulator tests | COMPLETED for BUILD 1 | see milestone 2 |
 | 10 | Actual game execution | BLOCKED | No legal HD 1.41 copy available; runtime display path not built |
 | 11–13 | Fixes, release, delivery | NOT STARTED | Release workflow present, not yet run |
@@ -178,6 +178,41 @@ Last updated: 2026-11-20 (BUILD 2 device report 2: glibc patched for Android sec
    0.3.4-dev.1 on the device: `wine: chdir to .../files/prefix/wine : No such file or directory` before Xvfb (the
    display test never created `files/prefix`). Fix in 0.3.5-dev.1 (CI-tested only).
    0.3.5-dev.1 on the device: **PASSED** (owner, 2026-11-21).
+   Step 3.3: app 0.3.6-dev.1, Runtime → Game launch test (diagnostic; Start Game disabled).
+   0.3.6: the app (same ID), standard debug signing (owner's decision); replaces 0.3.5-dev.1 after an uninstall.
+   0.3.6 on the device: pre-check PASS, real game exit 0 after ~2 s, `noexec filesystem?` for the game's EXE/DLLs.
+   0.3.7: private SHA-256-verified game copy in internal storage, exit diagnostics (relay/seh); CI-tested only.
+   0.3.7 on the device (GOG 2012 and DRM-free 2018): pre-check FAILED, exit 42, pixels OK, no native load line found
+   (the 0.3.7 relay trace pushed it out of the 2 MB that was read). 0.3.8: pre-check back on the 0.3.6 setting, whole
+   log read, program's own DirectDraw report required; CI-tested only.
+   0.3.8 on the device: pre-check PASS; the real game (DRM-free 2018) reached its "Enter Your Title" menu.
+   0.4.0: Start Game + game screen (same launch path, no traces), XTEST input, session lifecycle; CI-tested only.
+   0.4.0 on the device: Start Game, intro and menu OK; cursor and keys OK; taps did not click.
+   0.4.1: clicks held 120 ms (game polls the button state), Right toggle for right click/hold; CI-tested only.
+   0.4.1 on the device (owner, 2026-11-24): **playable** — menus, start a game, select units (tap, drag), move
+   orders, building tools, placement and construction. Baseline recorded: docs/BASELINE_0.4.1.md (commit 890ef28).
+   Next: experienced-player control evaluation (owner's friend); audio/resolution investigated
+   (docs/AUDIO_AND_RESOLUTION_INVESTIGATION.md); owner chose: sound now, resolution later.
+   0.5.0: game sound (ALSA plugin + AudioTrack bridge, Settings → Sound); controls unchanged; CI-tested only.
+   0.5.0 on the device: music and effects work, no lag, controls unchanged; very slight stutter (0 Android underruns).
+   0.5.1: plugin keeps the last period "in the device" so Wine inserts no silent lead-ins.
+   0.5.1 on the device (owner, 2026-11-24): music and sound effects work very well, no noticeable delay; possibly a
+   very minor brief stutter about every 10-20 s (barely noticeable, gameplay unaffected); touch controls fully
+   functional and unaffected. **0.5.1 is the current known-good version** (docs/BASELINE_0.5.1.md, commit 6e1ef56).
+   Owner's instruction: no further audio changes for now; keep runtime r6, display, launch path and touch controls;
+   wait for the owner's next instructions (pending: experienced-player control evaluation; display resolution).
+   0.6.0: Settings → Display Resolution (X screen size, injected DirectDraw mode, aspect-kept picture, touch mapping
+   per size, bar touches ignored, fallback to 1024×768); default byte-identical to 0.5.1; CI-tested only
+   (docs/DISPLAY_RESOLUTION.md has the device checklist). 0.5.1 (commit 6e1ef56) stays the recovery point.
+   0.6.0 CI: run 45625395365 green (150 unit tests, lint, APK verify, emulator smoke, qemu incl. step 4d at
+   1280x960 / 1600x720 / 640x480: all PASS). APK SHA-256 39eb048c…a287 (Android Debug signer); ALSA plugin unchanged
+   (83f46e1f…dd47). Awaiting the owner's device test.
+   0.6.0 device result (owner): resolution options work incl. Device; picture still 4:3 with black side bars.
+   Cause: the game's own 4:3 picture letterboxed (cnc-ddraw maintas inside the X screen / app Preserve renderer).
+   0.6.1: Display Scaling Mode (Stretch default, Preserve, Fill, Auto), game area beside the buttons, Device+Stretch
+   sets maintas=false; CI-tested only. Recovery points: 0.6.0 = 82b0adf, 0.5.1 = 6e1ef56.
+   0.6.1 CI: run 45655812835 green (157 unit tests; qemu step 4d incl. Stretch on 1024x768 and on 1600x720 with
+   cnc-ddraw stretching: taps at the tapped game pixel). APK SHA-256 810e5992…9dfc; ALSA plugin unchanged.
 1. Owner: install app 0.3.5-dev.1 (keep runtime r6), Runtime → Display test → Start, check the screen, pause/resume,
    let it run a few minutes, Stop, Copy report; send the report and a phone screenshot.
 2. Agent: analyse the device report; step 3.3 (touch input) only after step 3.2 passes on the device.

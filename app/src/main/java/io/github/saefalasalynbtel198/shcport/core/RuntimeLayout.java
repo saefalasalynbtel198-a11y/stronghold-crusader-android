@@ -29,6 +29,8 @@ public final class RuntimeLayout {
     public File wineBinDir() { return new File(root, "wine/bin"); }
     public File peSmoke32() { return new File(root, "win/shc-pe-smoke-i686.exe"); }
     public File peSmoke64() { return new File(root, "win/shc-pe-smoke-x86_64.exe"); }
+    /** DirectDraw/GDI window test program (runtime r6+): "ddraw" mode draws through ddraw.dll like the game. */
+    public File guiSmoke() { return new File(root, "win/shc-gui-smoke.exe"); }
     /** X server files (runtime r6+): patched Xvfb, xkbcomp wrapper, xkb data, xdpyinfo. */
     public File x11Dir() { return new File(root, "x11"); }
     public File xvfb() { return new File(root, "x11/Xvfb"); }
