@@ -1,4 +1,4 @@
-# Display Resolution (0.6.0)
+# Display Resolution (0.6.0) and Display Scaling Mode (0.6.1)
 
 Status: implemented and CI-tested (run 45625395365: all jobs green; APK SHA-256
 `39eb048c0a0c8b3f7a594cb4b0baecaed2c1993e6a15ad7de68a59f2646aa287`). **Not verified on the phone yet.** Recovery point: 0.5.1 (commit `6e1ef56`,
@@ -34,6 +34,34 @@ geometry, so a touch lands on the game pixel shown under the finger.
 * The diagnostic Display test and Game launch test always use 1024×768.
 * For any size other than 1024×768, that size is added to the resolutions DirectDraw offers the game
   (cnc-ddraw `inject_resolution`, both game sections), so it can be chosen in the game's options.
+
+## Why 0.6.0 still showed black bars with Device resolution (found on the phone)
+
+* The game renders at the resolution saved in its own options (4:3, e.g. 1024×768), whatever the X screen size.
+* cnc-ddraw (`maintas=true`) put that 4:3 picture into the wide Device-size X screen with black bars drawn **into the
+  framebuffer**; the app then showed the whole X screen. With 1024×768 selected, the bars came from the app's own
+  aspect-preserving renderer instead.
+* The side buttons floated over the right edge of a full-screen game view; they did not reduce it.
+
+## Display Scaling Mode (0.6.1)
+
+Settings → Display Scaling Mode. Saved immediately, applied at the next Start Game. **Default: Stretch to full screen.**
+
+| Mode | Picture | Touch |
+|---|---|---|
+| Stretch to full screen (default) | The whole X screen stretched to the whole game area (separate horizontal and vertical scale). No bars, nothing cropped; proportions change (on the Xiaomi 4:3 becomes ~2:1). | Every point of the game area maps to the X pixel drawn there. |
+| Preserve aspect ratio | Shape kept, centred, black bars (0.6.0 behaviour). | Bar touches ignored. |
+| Fill screen (crop) | Shape kept, enlarged until the area is full, centred; top/bottom (or left/right) edges cut off equally. | The cut-off strips cannot be reached (e.g. the bottom HUD may be partly hidden on a wide phone). |
+| Auto | As Preserve (never stretches or crops on its own); a Device-resolution screen already has the area's shape. | As Preserve. |
+
+* The **game area** is now the screen left of the button column; the buttons are never over the picture.
+* The renderer and the touch mapper use the same `ViewportTransform` (mode, X screen, area size), rebuilt whenever the
+  surface changes (pause/resume, rotation), so picture and touch cannot drift apart. Gestures and timing unchanged.
+* **1024×768 + Stretch** (the default pair): only the Android transform; Xvfb and ddraw.ini identical to 0.5.1/0.6.0.
+* **Device resolution + Stretch**: the Android stretch has nothing to do (the screen has the area's shape), so cnc-ddraw
+  is set to `maintas=false` for this combination only: it stretches the game's own (4:3) picture over the whole screen;
+  `adjmouse` maps the mouse back per axis (CI-tested). Every other combination leaves ddraw.ini unchanged.
+* Report: `Display Resolution: …; scaling …; game area WxH, picture WxH at (x,y), scale sx x sy[, visible X pixels … (cropped)]`.
 
 ## Safe start and fallback (Start Game only)
 
@@ -82,7 +110,21 @@ Report line: `Display Resolution: setting …; X screen …; [FALLBACK: …;] de
 * Larger sizes use more memory: the X framebuffer is width × height × 4 bytes (1024×768 = 3 MB, 2616×1280 = 13 MB),
   plus the same again for the app's upload buffer.
 
-## Device test checklist (owner)
+## Device test checklist 0.6.1 (owner)
+
+Uninstall 0.6.0 first. Default settings after install: 1024 × 768 and Stretch (Settings → Restore default display).
+
+1. Default (1024 × 768, Stretch): the picture fills everything left of the buttons, no black bars, whole HUD visible.
+   Tap menu buttons, select units (drag box), place buildings, long press, scroll and pinch: all land where touched.
+2. Device resolution + Stretch: also full screen. Same touch checks. Report shows "cnc-ddraw stretches the game picture too".
+3. Preserve aspect ratio: 4:3 with bars (as 0.6.0); touches in the bars do nothing.
+4. Fill screen: no bars, top and bottom cut off; touches land where touched (cut-off parts cannot be reached).
+5. Auto: as Preserve.
+6. Home button and back (pause/resume) in Stretch: picture still full screen, touches still correct.
+7. Side buttons (Esc, Enter, Space, Right, Keys, Report, Exit) work and never click the game.
+8. Sound as in 0.5.1.
+
+## Device test checklist 0.6.0 (owner)
 
 Uninstall 0.5.1 first (each build's debug key differs). Keep runtime r6. Before each Start Game, choose the option in
 Settings; after the game is running, use Report to copy the Display Resolution line.

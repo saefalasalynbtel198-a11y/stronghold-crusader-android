@@ -1,5 +1,10 @@
 # Known issues and limitations
 
+## Display Scaling Mode (0.6.1, not yet verified on the phone)
+
+* Stretch changes proportions (4:3 shown at about 2:1 on the Xiaomi): circles look like ovals.
+* Fill crops the top and bottom on a wide phone; the cut-off parts (possibly part of the bottom HUD) cannot be reached.
+
 ## Display Resolution (0.6.0, not yet verified on the phone)
 
 * The game's own resolution (saved in its options) is not changed by the app; set the same size in the game's options.

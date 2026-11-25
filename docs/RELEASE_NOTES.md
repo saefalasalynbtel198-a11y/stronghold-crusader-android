@@ -1,5 +1,18 @@
 # Release notes
 
+## 0.6.1 — Display Scaling Mode (test build)
+
+* Settings → Display Scaling Mode: **Stretch to full screen (default)**, Preserve aspect ratio, Fill screen (crop),
+  Auto. Applied at the next Start Game.
+* Stretch: the whole game frame stretched to the whole game area; no black bars, nothing cropped. Touches map to the
+  stretched picture (separate horizontal and vertical scale); gestures and click timing unchanged.
+* The game area is now the screen left of the side buttons (the buttons no longer float over the picture).
+* Why 0.6.0 showed bars with Device resolution: the game's own 4:3 picture was letterboxed by cnc-ddraw inside the
+  wide X screen. Device + Stretch now sets cnc-ddraw `maintas=false` (this combination only).
+* At 1024 × 768 the Xvfb command line and ddraw.ini are unchanged from 0.5.1/0.6.0 in every scaling mode.
+* Tests: 7 new unit tests (157 in all); CI step 4d adds Stretch on the default screen and on a wide screen.
+* Not verified on the phone yet. 0.6.0 and 0.5.1 remain recoverable (commits cc9e832…82b0adf and 6e1ef56).
+
 ## 0.6.0 — Display Resolution setting (test build; sound, touch and launch path unchanged at the default)
 
 * Settings → Display Resolution: 640 × 480, 800 × 600, 1024 × 768 (default), 1280 × 960, Device resolution, Auto.
