@@ -211,6 +211,8 @@ Last updated: 2026-11-20 (BUILD 2 device report 2: glibc patched for Android sec
    Cause: the game's own 4:3 picture letterboxed (cnc-ddraw maintas inside the X screen / app Preserve renderer).
    0.6.1: Display Scaling Mode (Stretch default, Preserve, Fill, Auto), game area beside the buttons, Device+Stretch
    sets maintas=false; CI-tested only. Recovery points: 0.6.0 = 82b0adf, 0.5.1 = 6e1ef56.
+   0.6.1 CI: run 45655812835 green (157 unit tests; qemu step 4d incl. Stretch on 1024x768 and on 1600x720 with
+   cnc-ddraw stretching: taps at the tapped game pixel). APK SHA-256 810e5992…9dfc; ALSA plugin unchanged.
 1. Owner: install app 0.3.5-dev.1 (keep runtime r6), Runtime → Display test → Start, check the screen, pause/resume,
    let it run a few minutes, Stop, Copy report; send the report and a phone screenshot.
 2. Agent: analyse the device report; step 3.3 (touch input) only after step 3.2 passes on the device.

@@ -110,6 +110,8 @@ Report line: `Display Resolution: setting …; X screen …; [FALLBACK: …;] de
 * Larger sizes use more memory: the X framebuffer is width × height × 4 bytes (1024×768 = 3 MB, 2616×1280 = 13 MB),
   plus the same again for the app's upload buffer.
 
+0.6.1 CI: run 45655812835 green; APK SHA-256 `810e599242421818b4376029dd8e9f7881da03dfa02dfa46e413eb6dc3a39dfc`.
+
 ## Device test checklist 0.6.1 (owner)
 
 Uninstall 0.6.0 first. Default settings after install: 1024 × 768 and Stretch (Settings → Restore default display).
