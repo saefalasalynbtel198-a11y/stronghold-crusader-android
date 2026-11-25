@@ -18,16 +18,21 @@
 #      syswow64, ddraw.ini via CNC_DDRAW_CONFIG_FILE, DirectDraw colours in Xvfb, game folder unchanged
 #   5. start/stop cycles with the app's code: stdout closed after the number, process ended, socket gone
 #   6. no link syscall in any Xvfb started by the app's code; every syscall checked against Android's arm64 allowlist
+#   4d. 0.6.0 Display Resolution: Xvfb at other screen sizes with the app's code (framebuffer of that size), cnc-ddraw
+#      settings for them, the app's DirectDraw pre-check there, a DirectDraw program as the game in a 16-bit mode
+#      (picture kept in shape, mode offered via inject_resolution), taps through the app's mapper on a phone-shaped
+#      view arriving at the tapped game pixel, a touch in the black bar sending nothing
 #   4c. game sound: a DirectSound program (two tones) under Wine with the app's ALSA configuration -> winealsa ->
 #      Box64 -> runtime r6's native libasound -> the SHC ALSA plugin (arm64) -> the app's receiver (AudioStreamPump);
 #      the recording must hold both tones; also with sound off the program must not hang
-# Usage: test-app-display-qemu.sh <shc-runtime-r6-*.zip> <shc-display-test.exe> <work dir> [<plugin .so> <shc-audio-test.exe>]
+# Usage: test-app-display-qemu.sh <shc-runtime-r6-*.zip> <shc-display-test.exe> <work dir> [<plugin .so> <shc-audio-test.exe> [<shc-ddraw-input-test.exe>]]
 set -uo pipefail
 ZIP="$(realpath "${1:?runtime zip}")"
 EXE="$(realpath "${2:?shc-display-test.exe}")"
 W="$(mkdir -p "${3:?work dir}" && realpath "$3")"
 PLUGIN="${4:+$(realpath "$4")}"
 AEXE="${5:+$(realpath "$5")}"
+RES_EXE="${6:+$(realpath "$6")}"
 repo="$(cd "$(dirname "$0")/../.." && pwd)"
 core="$repo/app/src/main/java/io/github/saefalasalynbtel198/shcport/core"
 rt="$W/runtime"; st="$W/strace"; logs="$W/xvfb-logs"
@@ -215,6 +220,25 @@ timeout 120 "$box64" "$wineserver" -k > /dev/null 2>&1
 pkill -u "$(id -u)" -f "x11/Xvfb :$D "; sleep 3
 alive $D && result stop "FAIL (Xvfb still running)" || result stop "PASS (Xvfb stopped on SIGTERM)"
 [ -e "$fb/Xvfb_screen0" ] && echo "framebuffer file still present after stop" || echo "framebuffer file removed by Xvfb on exit"
+
+echo "== 4d. 0.6.0 Display Resolution: other X screen sizes, cnc-ddraw scaling, touch mapping"
+if [ -n "$RES_EXE" ]; then
+  # screen | game mode | pre-check: the chosen size with the game still at 1024x768 (scaled up), a phone-shaped
+  # screen with the game at that size (Device: injected mode), and the smallest size (game scaled down)
+  for cfg in "1280x960 1024x768 precheck" "1600x720 1600x720 precheck" "640x480 1024x768 no-precheck"; do
+    read -r rs rg rp <<< "$cfg"
+    timeout 3600 java -cp "$W/classes" DisplayCli resolution "$rt" "$prefix" "$files/tmp" "$W/resolution" \
+      "$repo/scripts/ci/x11-abstract-bridge.py" "$RES_EXE" 45 "$rs" "$rg" "$rp" 2> >(grep -v "^Picked up" >&2) | tee "$W/res-$rs-$rg.txt"
+    rrc=${PIPESTATUS[0]}
+    timeout 120 "$box64" "$wineserver" -k > /dev/null 2>&1
+    pkill -u "$(id -u)" -f "x11/Xvfb :45 "; sleep 3
+    if [ $rrc -eq 0 ] && ! grep -q ": FAIL" "$W/res-$rs-$rg.txt"; then
+      result "resolution-$rs-game-$rg" "PASS (Xvfb ${rs}x24 with the app's argv, framebuffer $rs; ini injects the size; $([ "$rp" = precheck ] && echo "app's DirectDraw pre-check PASS at this size; ")game mode $rg offered and set, picture in shape; taps on a 2400x1080 view at the tapped game pixel; bar touch sends nothing)"
+    else result "resolution-$rs-game-$rg" "FAIL (exit $rrc)"; fi
+  done
+else
+  echo "(skipped: no DirectDraw input test program given)"
+fi
 
 echo "== 5. start/stop cycles with the app's code (stop = the app's SIGTERM, then SIGKILL after 3 s)"
 QEMU_STRACE=1 QEMU_LOG_FILENAME="$st/xvfb-cycle.%d" cli cycle "$rt" "$W/fb-cycle" "$logs" 3 -- "$W/deny-link" | grep -v "^argv" | tee "$W/cycle.txt"

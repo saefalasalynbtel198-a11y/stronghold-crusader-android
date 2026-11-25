@@ -53,6 +53,9 @@ public final class DisplayCli {
             case "game-launch":    // game-launch <runtime> <prefix> <gamedir> <exe> <tmp> <display> <fbfile> <logdir>
                 System.exit(gameLaunch(a));
                 break;
+            case "resolution":     // resolution <runtime> <prefix> <tmp> <work> <bridge.py> <ddraw-input-test.exe> <display> <screen WxH> <game WxH> <precheck|no-precheck>
+                System.exit(resolution(a));
+                break;
             case "cycle":          // cycle <runtime> <fbbase> <logdir> <rounds> [-- prefix...]
                 System.exit(cycle(a));
                 break;
@@ -107,6 +110,8 @@ public final class DisplayCli {
         final Map<Integer, File> logs = new java.util.HashMap<>();
         List<String> lastArgv;
         int n;
+        /** X screen size (Display Resolution); 1024×768 as before unless set. */
+        int width = X11DisplayPlan.WIDTH, height = X11DisplayPlan.HEIGHT;
 
         CliHost(RuntimeLayout rt, File fbBase, File logDir, List<String> prefix, boolean noProbe) {
             this.rt = rt; this.fbBase = fbBase; this.logDir = logDir; this.prefix = prefix; this.noProbe = noProbe;
@@ -120,7 +125,8 @@ public final class DisplayCli {
         @Override public Process launch(int d) throws java.io.IOException {
             File fb = new File(fbBase, String.valueOf(d));
             fb.mkdirs();
-            lastArgv = X11DisplayPlan.xvfbArgv(rt, d, fb);
+            lastArgv = width == X11DisplayPlan.WIDTH && height == X11DisplayPlan.HEIGHT
+                    ? X11DisplayPlan.xvfbArgv(rt, d, fb) : X11DisplayPlan.xvfbArgv(rt, d, fb, width, height);
             List<String> cmd = new ArrayList<>(prefix);
             cmd.addAll(lastArgv);
             File log = new File(logDir, "xvfb-" + d + "-" + (++n) + ".log");
@@ -649,5 +655,184 @@ public final class DisplayCli {
             raf.readFully(b);
             return new String(b, java.nio.charset.StandardCharsets.UTF_8);
         }
+    }
+
+    // ------------------------------------------------------------------------------------------------ 0.6.0
+
+    private static int[] wh(String v) {
+        String[] p = v.split("x");
+        return new int[] {Integer.parseInt(p[0]), Integer.parseInt(p[1])};
+    }
+
+    /**
+     * Display Resolution with the app's code: Xvfb at the chosen screen size (X11DisplayPlan), its framebuffer of that
+     * size, cnc-ddraw's settings for it (CncDdrawConfig.forScreen), the app's DirectDraw pre-check at that size, then
+     * a DirectDraw program as the game in a 16-bit mode (the game's own resolution) and taps through the app's
+     * TouchMouseMapper (phone view 2400x1080, viewport of the X screen) + X11Input: the program must receive each
+     * click at the tapped game pixel (cnc-ddraw scales the picture onto the X screen and maps the mouse back);
+     * a touch in the phone's black bars must produce no input at all.
+     */
+    private static int resolution(String[] a) throws Exception {
+        RuntimeLayout rt = new RuntimeLayout(new File(a[1]));
+        File prefix = new File(a[2]), tmp = new File(a[3]), work = new File(a[4]);
+        String bridge = a[5];
+        File testExe = new File(a[6]);
+        int d = Integer.parseInt(a[7]);
+        int[] sc = wh(a[8]), g = wh(a[9]);
+        boolean pre = a[10].equals("precheck");
+        String tag = a[8] + "-game-" + a[9];
+        File dir = new File(work, tag);
+        dir.mkdirs();
+        int bad = 0;
+        String verr = io.github.saefalasalynbtel198.shcport.core.DisplayResolution.validate(sc[0], sc[1]);
+        System.out.println("[" + tag + "] check screen size valid for the app: " + (verr == null ? "PASS" : "FAIL " + verr));
+        if (verr != null) return 1;
+
+        // 1. Xvfb at the size, as the app starts it
+        CliHost h = new CliHost(rt, new File(dir, "fb"), dir, new ArrayList<>(), false);
+        h.width = sc[0];
+        h.height = sc[1];
+        XvfbStarter.Result r = XvfbStarter.start(h, d, d, 300_000);
+        if (!r.ok()) {
+            System.out.println("[" + tag + "] check Xvfb started: FAIL " + r.error);
+            return 2;
+        }
+        boolean argvOk = h.lastArgv.contains(sc[0] + "x" + sc[1] + "x24");
+        System.out.println("[" + tag + "] check Xvfb argv has -screen 0 " + sc[0] + "x" + sc[1] + "x24: " + (argvOk ? "PASS" : "FAIL " + quoted(h.lastArgv)));
+        if (!argvOk) bad++;
+        File fb = new File(new File(new File(dir, "fb"), String.valueOf(d)), "Xvfb_screen0");
+        String fbSize;
+        try (RandomAccessFile raf = new RandomAccessFile(fb, "r"); FileChannel ch = raf.getChannel()) {
+            XwdFramebuffer x = XwdFramebuffer.parse(ch.map(FileChannel.MapMode.READ_ONLY, 0, ch.size()));
+            fbSize = x.width + "x" + x.height;
+        }
+        boolean fbOk = fbSize.equals(a[8]);
+        System.out.println("[" + tag + "] check framebuffer (app's XWD parser) is " + a[8] + ": " + (fbOk ? "PASS" : "FAIL " + fbSize));
+        if (!fbOk) bad++;
+
+        // 2. the game's setup with cnc-ddraw settings for this screen; the stand-in has the game's file name
+        File game = new File(dir, "game");
+        game.mkdirs();
+        String exe = "Stronghold Crusader.exe";
+        java.nio.file.Files.copy(testExe.toPath(), new File(game, exe).toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+        io.github.saefalasalynbtel198.shcport.core.WineLaunchPlan plan = io.github.saefalasalynbtel198.shcport.core.WineLaunchPlan
+                .build(rt, prefix, game, exe, tmp, d, Arrays.asList(String.valueOf(g[0]), String.valueOf(g[1]), "1500"));
+        io.github.saefalasalynbtel198.shcport.core.CncDdrawConfig cfg = new io.github.saefalasalynbtel198.shcport.core.CncDdrawConfig().forScreen(sc[0], sc[1]);
+        io.github.saefalasalynbtel198.shcport.core.GameSetup.Result sr = io.github.saefalasalynbtel198.shcport.core.GameSetup.prepare(plan, cfg);
+        boolean def = sc[0] == X11DisplayPlan.WIDTH && sc[1] == X11DisplayPlan.HEIGHT;
+        boolean iniOk = sr.ok && (def ? !cfg.toIni().contains("inject_resolution")
+                : cfg.toIni().split("inject_resolution=" + a[8] + "\r\n", -1).length == 3);
+        System.out.println("[" + tag + "] check setup, ini " + (def ? "unchanged from 0.5.1" : "injects " + a[8] + " in both game sections") + ": " + (iniOk ? "PASS" : "FAIL"));
+        if (!iniOk) { System.out.print(sr.report); bad++; }
+
+        // 3. the app's DirectDraw pre-check at this screen (runtime's program, 1024x768x16, picture checked in the framebuffer)
+        if (pre) {
+            bad += ddrawRun("[" + tag + "] precheck", plan.argvFor(rt.guiSmoke().getPath(), Arrays.asList("ddraw", "10")), rt.root,
+                    plan.envWith(io.github.saefalasalynbtel198.shcport.core.WineLaunchPlan.WINEDEBUG_PRECHECK), fb, new File(dir, "precheck.log"));
+        }
+
+        // 4. the DirectDraw program as the game, in mode g
+        File log = new File(dir, "game.log");
+        ProcessBuilder pb = new ProcessBuilder(plan.argv).directory(plan.workingDirectory).redirectErrorStream(true).redirectOutput(log);
+        pb.environment().remove("LD_LIBRARY_PATH");
+        pb.environment().putAll(plan.envWith(io.github.saefalasalynbtel198.shcport.core.WineLaunchPlan.WINEDEBUG_PLAY));
+        long t0 = System.currentTimeMillis();
+        Process p = pb.start();
+        p.getOutputStream().close();
+        String pixels = null;
+        while (pixels == null && p.isAlive() && System.currentTimeMillis() - t0 < 30 * 60_000L) {
+            Thread.sleep(3000);
+            try (RandomAccessFile raf = new RandomAccessFile(fb, "r"); FileChannel ch = raf.getChannel()) {
+                MappedByteBuffer m = ch.map(FileChannel.MapMode.READ_ONLY, 0, ch.size());
+                DisplayTestPattern.Check c = DisplayTestPattern.checkQuadrants(XwdFramebuffer.parse(m), m,
+                        DisplayTestPattern.DDRAW_COLORS, DisplayTestPattern.DDRAW_NAMES);
+                if (c.ok) pixels = c.detail;
+            } catch (Exception ignored) { }
+        }
+        String gl = new String(java.nio.file.Files.readAllBytes(log.toPath()), java.nio.charset.StandardCharsets.UTF_8);
+        boolean listed = gl.contains("requested mode " + g[0] + "x" + g[1] + " listed");
+        boolean modeSet = gl.contains("SetDisplayMode(" + g[0] + "," + g[1] + ",16) 0x00000000");
+        System.out.println("[" + tag + "] check game mode " + a[9] + " offered by DirectDraw and set: " + (listed && modeSet ? "PASS" : "FAIL (listed "
+                + listed + ", set " + modeSet + ")"));
+        if (!listed || !modeSet) bad++;
+        System.out.println("[" + tag + "] check game picture in the X screen (4 colours, aspect kept): " + (pixels != null ? "PASS " + pixels : "FAIL")
+                + " [" + (System.currentTimeMillis() - t0) / 1000 + " s]");
+        if (pixels == null) {
+            bad++;
+            for (String l : gl.split("\n")) if (l.startsWith("ddraw-input:") || l.contains("err:")) System.out.println("  | " + l);
+            p.destroyForcibly();
+            return 1;
+        }
+
+        // 5. taps on a phone view through the app's mapper and X11 client
+        Process br = new ProcessBuilder("python3", "-I", bridge, String.valueOf(d)).redirectError(ProcessBuilder.Redirect.INHERIT).start();
+        io.github.saefalasalynbtel198.shcport.core.ViewportTransform vt =
+                new io.github.saefalasalynbtel198.shcport.core.ViewportTransform(sc[0], sc[1], 2400, 1080);
+        io.github.saefalasalynbtel198.shcport.core.TouchMouseMapper mapper = new io.github.saefalasalynbtel198.shcport.core.TouchMouseMapper(
+                new io.github.saefalasalynbtel198.shcport.core.ControlSettings(), vt);
+        // where cnc-ddraw puts the game picture on the X screen (maintas: aspect kept, centred)
+        float s = Math.min((float) sc[0] / g[0], (float) sc[1] / g[1]);
+        float ox = (sc[0] - g[0] * s) / 2f, oy = (sc[1] - g[1] * s) / 2f;
+        int[][] targets = {{g[0] / 3, g[1] / 3}, {g[0] / 10, g[1] / 10}, {g[0] / 2, g[1] / 2}, {g[0] * 9 / 10, g[1] * 85 / 100}};
+        long tt = System.currentTimeMillis();
+        boolean barQuiet;
+        try (io.github.saefalasalynbtel198.shcport.core.X11Input x = io.github.saefalasalynbtel198.shcport.core.X11Input
+                .connect(br.getInputStream(), br.getOutputStream())) {
+            System.out.println("[" + tag + "] x11 input: screen " + x.screenWidth + "x" + x.screenHeight + "; phone view 2400x1080, picture "
+                    + Math.round(sc[0] * vt.scale) + "x" + Math.round(sc[1] * vt.scale) + " at " + Math.round(vt.offsetX) + "," + Math.round(vt.offsetY));
+            for (int[] t : targets) {
+                int xi = (int) Math.floor(ox + (t[0] + 0.5f) * s), yi = (int) Math.floor(oy + (t[1] + 0.5f) * s);
+                float vx = vt.offsetX + (xi + 0.5f) * vt.scale, vy = vt.offsetY + (yi + 0.5f) * vt.scale;
+                List<io.github.saefalasalynbtel198.shcport.core.InputAction> acts = new ArrayList<>(mapper.onTouch(
+                        io.github.saefalasalynbtel198.shcport.core.TouchMouseMapper.Frame.single(io.github.saefalasalynbtel198.shcport.core.TouchMouseMapper.Action.DOWN, vx, vy, System.currentTimeMillis() - tt)));
+                Thread.sleep(80);
+                acts.addAll(mapper.onTouch(io.github.saefalasalynbtel198.shcport.core.TouchMouseMapper.Frame.single(
+                        io.github.saefalasalynbtel198.shcport.core.TouchMouseMapper.Action.UP, vx, vy, System.currentTimeMillis() - tt)));
+                for (io.github.saefalasalynbtel198.shcport.core.InputAction ia : acts) x.send(ia);
+                x.flush();
+                System.out.println("[" + tag + "] tap game " + t[0] + "," + t[1] + " = X " + xi + "," + yi + " = view " + Math.round(vx) + "," + Math.round(vy) + " -> " + acts);
+                Thread.sleep(4000);
+            }
+            // a touch in the black bar left of the picture (the view is wider than the X screen's shape)
+            float bx = vt.offsetX > 8 ? vt.offsetX / 2 : 4, by = vt.offsetY > 8 ? vt.offsetY / 2 : 540;
+            List<io.github.saefalasalynbtel198.shcport.core.InputAction> bar = new ArrayList<>(mapper.onTouch(
+                    io.github.saefalasalynbtel198.shcport.core.TouchMouseMapper.Frame.single(io.github.saefalasalynbtel198.shcport.core.TouchMouseMapper.Action.DOWN, bx, by, System.currentTimeMillis() - tt)));
+            Thread.sleep(80);
+            bar.addAll(mapper.onTouch(io.github.saefalasalynbtel198.shcport.core.TouchMouseMapper.Frame.single(
+                    io.github.saefalasalynbtel198.shcport.core.TouchMouseMapper.Action.UP, bx, by, System.currentTimeMillis() - tt)));
+            boolean inBar = !vt.contains(bx, by);
+            barQuiet = inBar && bar.isEmpty();
+            System.out.println("[" + tag + "] check touch in the black bar at " + Math.round(bx) + "," + Math.round(by) + " sends no input: "
+                    + (barQuiet ? "PASS" : "FAIL (in bar " + inBar + ", actions " + bar + ")"));
+        }
+        if (!barQuiet) bad++;
+        Thread.sleep(30_000);   // Wine under qemu delivers the messages with some delay
+        p.destroyForcibly();
+        p.waitFor();
+        br.destroy();
+        gl = new String(java.nio.file.Files.readAllBytes(log.toPath()), java.nio.charset.StandardCharsets.UTF_8);
+        List<int[]> downs = new ArrayList<>();
+        for (String l : gl.split("\n")) {
+            java.util.regex.Matcher mm = java.util.regex.Pattern.compile("WM_LBUTTONDOWN (-?\\d+),(-?\\d+) cursor (-?\\d+),(-?\\d+)").matcher(l);
+            if (mm.find()) {
+                downs.add(new int[] {Integer.parseInt(mm.group(1)), Integer.parseInt(mm.group(2)), Integer.parseInt(mm.group(3)), Integer.parseInt(mm.group(4))});
+                System.out.println("  | " + l.trim());
+            }
+        }
+        // one game pixel covers 1/s X pixels: the tolerance grows when the picture is smaller than the game
+        int tol = 2 + (int) Math.ceil(1 / s);
+        int found = 0;
+        for (int i = 1; i < targets.length; i++) {        // targets[0] only wakes the window (cnc-ddraw may take that click to lock the mouse)
+            int[] t = targets[i];
+            boolean hit = false;
+            for (int[] dn : downs) if (Math.abs(dn[0] - t[0]) <= tol && Math.abs(dn[1] - t[1]) <= tol) hit = true;
+            System.out.println("[" + tag + "] click at game " + t[0] + "," + t[1] + " (±" + tol + "): " + (hit ? "received" : "NOT received"));
+            if (hit) found++;
+        }
+        boolean clicksOk = found == targets.length - 1 && downs.size() <= targets.length;
+        System.out.println("[" + tag + "] check taps arrive at the tapped game pixel (" + found + "/" + (targets.length - 1) + ", " + downs.size()
+                + " clicks in all, none from the bar): " + (clicksOk ? "PASS" : "FAIL"));
+        if (!clicksOk) bad++;
+        return bad == 0 ? 0 : 1;
     }
 }

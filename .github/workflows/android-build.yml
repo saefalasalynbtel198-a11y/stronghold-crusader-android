@@ -212,6 +212,7 @@ jobs:
           mkdir -p out
           i686-w64-mingw32-gcc -O2 -Wall -Werror -static -o out/shc-display-test.exe app/winsrc/shc-display-test.c -lgdi32
           i686-w64-mingw32-gcc -O2 -Wall -Werror -static -o out/shc-audio-test.exe app/winsrc/shc-audio-test.c -ldsound -ldxguid -lm
+          i686-w64-mingw32-gcc -O2 -Wall -Werror -static -o out/shc-ddraw-input-test.exe app/winsrc/shc-ddraw-input-test.c -lgdi32
           bash scripts/ci/build-alsa-plugin.sh out/libasound_module_pcm_shc.so
           sha256sum out/*.exe
       - name: Game-sound plugin with the app's receiver (runner build of the same source; on-time, late writer, two streams, no app)
@@ -219,7 +220,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends libasound2-dev
           bash scripts/ci/test-audio-plugin-native.sh "$RUNNER_TEMP/audio-native"
       - name: Xvfb with the app's command line, test program through Box64 + Wine, framebuffer read by the app's code
-        run: bash scripts/ci/test-app-display-qemu.sh r6/shc-runtime-r6-*.zip out/shc-display-test.exe "$RUNNER_TEMP/appdisplay" out/libasound_module_pcm_shc.so out/shc-audio-test.exe
+        run: bash scripts/ci/test-app-display-qemu.sh r6/shc-runtime-r6-*.zip out/shc-display-test.exe "$RUNNER_TEMP/appdisplay" out/libasound_module_pcm_shc.so out/shc-audio-test.exe out/shc-ddraw-input-test.exe
       - name: Upload results
         if: always()
         uses: actions/upload-artifact@v4
